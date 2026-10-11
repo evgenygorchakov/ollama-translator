@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ollama Translator</title>
+    <link rel="stylesheet" href="popup.css" />
+    <script type="module" src="popup.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1>Ollama Translator</h1>
+      <div class="header-buttons">
+        <button id="refresh" class="icon-button" type="button" title="Проверить снова">⟳</button>
+        <button id="options" class="icon-button" type="button" title="Настройки">⚙</button>
+      </div>
+    </header>
+
+    <section id="status" class="status" data-kind="checking">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="status-text">Проверяю Ollama…</span>
+    </section>
+    <div id="hint" class="hint" hidden>
+      <p id="hint-text"></p>
+      <code id="hint-code" hidden></code>
+    </div>
+
+    <label class="field">
+      <span>Модель</span>
+      <select id="model" disabled></select>
+    </label>
+
+    <div class="actions">
+      <button
+        id="stop"
+        class="stop"
+        type="button"
+        title="Оборвать все запросы к модели и выгрузить её из памяти"
+        hidden
+      >
+        ■ Стоп
+      </button>
+      <button id="translate" class="primary" type="button" disabled>Перевести страницу</button>
+      <button id="original" type="button" hidden>Показать оригинал</button>
+    </div>
+    <p id="progress" class="note" hidden></p>
+    <p id="note" class="note" hidden></p>
+  </body>
+</html>

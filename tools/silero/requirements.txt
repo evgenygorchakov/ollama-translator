@@ -1,0 +1,4 @@
+silero
+soundfile
+numpy
+flask

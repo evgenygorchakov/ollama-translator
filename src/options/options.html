@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ollama Translator — настройки</title>
+    <link rel="stylesheet" href="options.css" />
+    <script type="module" src="options.js"></script>
+    <script type="module" src="../dub/options.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1>Ollama Translator — настройки</h1>
+
+      <form id="form" novalidate>
+        <section>
+          <h2>Ollama</h2>
+          <div class="field">
+            <label for="ollamaUrl">Адрес Ollama</label>
+            <div class="row">
+              <input id="ollamaUrl" type="url" placeholder="http://127.0.0.1:11434" spellcheck="false" />
+              <button id="check" type="button">Проверить</button>
+            </div>
+            <small class="help">
+              Для Ollama на другом компьютере расширение попросит разрешение на этот адрес.
+              Там тоже нужен <code>OLLAMA_ORIGINS=chrome-extension://*,moz-extension://*</code>.
+            </small>
+          </div>
+          <p id="ollama-status" class="status" data-kind="checking"></p>
+
+          <label class="field">
+            <span>Модель</span>
+            <select id="model"></select>
+          </label>
+
+          <label class="field">
+            <span>Язык перевода</span>
+            <select id="targetLang"></select>
+          </label>
+        </section>
+
+        <section>
+          <h2>Запросы</h2>
+          <div class="grid">
+            <label class="field">
+              <span>Фрагментов в батче</span>
+              <input id="batchMaxItems" type="number" />
+            </label>
+            <label class="field">
+              <span>Символов в батче</span>
+              <input id="batchMaxChars" type="number" />
+            </label>
+            <label class="field">
+              <span>Параллельных запросов</span>
+              <input id="concurrency" type="number" />
+            </label>
+            <label class="field">
+              <span>Temperature</span>
+              <input id="temperature" type="number" />
+            </label>
+            <label class="field">
+              <span>Контекст (num_ctx)</span>
+              <input id="numCtx" type="number" />
+            </label>
+          </div>
+          <small class="help">
+            Параллельность больше 1 имеет смысл, только если модель целиком в VRAM
+            (<code>ollama ps</code> → 100% GPU) и задан <code>OLLAMA_NUM_PARALLEL</code>.
+          </small>
+        </section>
+
+        <details>
+          <summary>Продвинутое: свой system prompt</summary>
+          <p class="help">
+            Пусто — встроенный промпт (показан серым). <code>{targetLang}</code> заменяется на
+            название языка. Модель обязана вернуть JSON <code>{"translations": [...]}</code> —
+            формат ответа задаётся схемой, но в промпте его лучше тоже упомянуть.
+          </p>
+          <textarea id="systemPrompt" rows="8" spellcheck="false"></textarea>
+        </details>
+
+        <section>
+          <h2>Озвучка видео</h2>
+          <div class="field">
+            <label for="dubTtsUrl">Адрес Silero</label>
+            <div class="row">
+              <input id="dubTtsUrl" type="url" placeholder="http://127.0.0.1:5011" spellcheck="false" />
+              <button id="dubCheck" type="button">Проверить</button>
+            </div>
+            <small class="help">
+              Сервер синтеза речи: на Windows — <code>tools/silero</code>, на Linux — systemd-сервис
+              из <code>sup/optional/voice</code>. Озвучка всегда на русском, язык перевода на неё
+              не влияет.
+            </small>
+          </div>
+          <p id="dub-status" class="status" data-kind="checking"></p>
+
+          <div class="field">
+            <label for="dubVoice">Голос</label>
+            <div class="row">
+              <select id="dubVoice"></select>
+              <button id="dubListen" type="button">▶ Прослушать</button>
+            </div>
+          </div>
+          <p id="dub-listen-status" class="status"></p>
+          <small class="help">
+            Громкость оригинала, ускорение речи и русские субтитры — в меню рядом с кнопкой
+            «Перевести» в плеере YouTube.
+          </small>
+        </section>
+
+        <div class="actions">
+          <button id="save" class="primary" type="submit">Сохранить</button>
+          <button id="reset" type="button">Сбросить настройки</button>
+          <span id="save-status" class="muted" role="status"></span>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>

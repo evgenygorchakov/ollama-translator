@@ -1,0 +1,16 @@
+/* Перевод под оригиналом (модель испортила теги ссылок) и ⚠. Селекторы с атрибутом — чтобы
+   стили сайта не перебили. */
+span.ot-tr[data-ot] {
+  display: block;
+  margin-top: 0.3em;
+  opacity: 0.85;
+  white-space: normal;
+}
+
+span.ot-tr.ot-error[data-ot] {
+  display: inline-block;
+  margin-left: 0.3em;
+  color: #cf222e;
+  cursor: pointer;
+  opacity: 1;
+}
