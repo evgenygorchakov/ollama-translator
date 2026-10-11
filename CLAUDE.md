@@ -18,10 +18,10 @@
 - Разработка нативно на Windows 11. Ollama доступна на `http://127.0.0.1:11434`. Перед
   `ollama pull` (это гигабайты) спрашивать пользователя.
 - Silero (синтез речи для озвучки) — на `http://127.0.0.1:5011`. На Windows он ставится из
-  `tools/silero/` (venv через uv, автозапуск задачей Планировщика «Silero TTS»), на Linux —
-  systemd-сервис из `sup/optional/voice`. Если запущен WSL, порт может держать Silero из WSL
-  (см. `tools/silero/README.md`). Перед установкой torch и моделей Silero (сотни МБ) спрашивать
-  пользователя.
+  `tools/silero/` (venv через uv, запуск вручную `start-silero.cmd`, по желанию — автозапуск
+  задачей Планировщика «Silero TTS»), на Linux — systemd-сервис из `sup/optional/voice`. Если
+  запущен WSL, порт может держать Silero из WSL (см. `tools/silero/README.md`). Перед установкой
+  torch и моделей Silero (сотни МБ) спрашивать пользователя.
 - Поведение в браузере проверяет пользователь: Claude даёт ему конкретный чек-лист.
 - Код должен одинаково работать в Chrome на Windows и в Chrome/Chromium на Linux, а также
   в Firefox 140+. Один манифест на оба браузера: Chrome берёт `background.service_worker`,

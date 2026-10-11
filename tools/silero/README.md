@@ -22,22 +22,24 @@ same port 5011, so the extension needs no configuration.
 
 ## Windows
 
-Requires [uv](https://docs.astral.sh/uv/). Downloads about 280 MB: torch ~120 MB, model ~139 MB.
-In PowerShell from this folder:
+Requires [uv](https://docs.astral.sh/uv/) (`winget install astral-sh.uv`). Downloads about
+280 MB: torch ~120 MB, model ~139 MB. In PowerShell from this folder:
 
 ```powershell
 uv venv --python 3.12 .venv
 uv pip install --python .venv\Scripts\python.exe torch --index-url https://download.pytorch.org/whl/cpu
 uv pip install --python .venv\Scripts\python.exe -r requirements.txt
-.venv\Scripts\python.exe server.py
 ```
 
-torch is installed from the PyTorch CPU index so it comes without CUDA and is smaller. The last
-command is a test run: on first start the model is downloaded into `.venv`
-(`site-packages\silero\model\`), later starts take a few seconds. The server is ready once the
-console shows `Running on http://127.0.0.1:5011`. Ctrl+C stops it.
+torch is installed from the PyTorch CPU index so it comes without CUDA and is smaller.
 
-Autostart at Windows sign-in, without a window:
+**Start:** double-click `start-silero.cmd`. The server runs in its own window; close the window
+or press Ctrl+C to stop it. On first start the model is downloaded into `.venv`
+(`site-packages\silero\model\`), later starts take a few seconds. The server is ready once the
+window shows `Running on http://127.0.0.1:5011`. If something already answers on port 5011
+(another window, the autostart task or WSL), the script says so and doesn't start a second server.
+
+**Autostart (optional)** at Windows sign-in, without a window:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install-autostart.ps1
@@ -51,6 +53,11 @@ The script creates the "Silero TTS" Task Scheduler task and starts the server. T
 
 ```powershell
 curl.exe -s http://127.0.0.1:5011/health               # is the server up
+```
+
+With autostart (`start-silero.cmd` prints to its window instead of the log):
+
+```powershell
 Get-Content .\silero.log -Wait                         # log (rewritten on every start)
 Start-ScheduledTask "Silero TTS"                       # start
 Get-Process python | ? Path -like "$PWD\.venv\*" | Stop-Process   # stop
@@ -58,16 +65,19 @@ powershell -ExecutionPolicy Bypass -File .\install-autostart.ps1 -Remove   # rem
 ```
 
 Default voice, port and the rest are set by `SILERO_*` variables, listed with defaults at the
-top of `server.py`. Set them in `silero-serve.cmd` with a line like `set SILERO_VOICE=baya`.
+top of `server.py`. Set them in `start-silero.cmd` and `silero-serve.cmd` with a line like
+`set SILERO_VOICE=baya`. Port 5011 is also in the `start-silero.cmd` check and in the extension's
+manifest permissions.
 
 Update packages: `uv pip install --python .venv\Scripts\python.exe -U -r requirements.txt`.
-Uninstall: remove autostart, then delete `.venv`.
+Uninstall: remove autostart if it's set up, then delete `.venv`.
 
 ## When WSL is running
 
 WSL forwards ports from Linux to Windows. If WSL runs its own Silero on 5011 (the systemd
 service from `sup`), `wslrelay.exe` takes port 5011 on Windows. Which one gets the port depends
-on what started first: WSL or the "Silero TTS" task.
+on what started first: WSL or the Windows server. `start-silero.cmd` checks the port and won't
+start if WSL already answers on it; the "Silero TTS" task doesn't check.
 
 - The Windows server started second doesn't fail: Flask on Windows binds to a busy port anyway,
   but requests go to whoever was first.
