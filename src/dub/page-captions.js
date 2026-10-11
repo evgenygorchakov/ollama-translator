@@ -67,13 +67,16 @@ export async function pageCaptions(videoId) {
     });
   }
 
-  // Включает субтитры плеера на время, чтобы он запросил их с токеном.
+  // Включает субтитры плеера на время, чтобы он запросил их с токеном. Уже включённую дорожку
+  // плеер заново не запрашивает, а его прежний запрос YouTube из журнала performance
+  // вычищает, поэтому сначала выключаем.
   // → restore(): вернуть субтитрам прежнее состояние.
   function showCaptions(player, track) {
     const before = player.getOption("captions", "track"); // {} или undefined — выключены
     player.loadModule("captions");
     const list = player.getOption("captions", "tracklist") ?? [];
     const target = list.find((t) => t.vss_id === track.vssId) ?? { languageCode: track.languageCode };
+    player.setOption("captions", "track", {});
     player.setOption("captions", "track", target);
     return () => {
       try {
@@ -101,7 +104,7 @@ export async function pageCaptions(videoId) {
     const track = english.find((t) => t.kind !== "asr") ?? english[0];
     if (!track?.baseUrl) return { error: "NO_CAPTIONS" };
 
-    // субтитры уже включены — запрос с токеном, скорее всего, уже был
+    // запрос с токеном мог быть недавно, если субтитры включены
     let token = findToken(performance.getEntriesByType("resource"));
     if (!token) {
       const waiting = waitToken(); // до включения субтитров: иначе запрос можно пропустить
