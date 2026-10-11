@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Ollama Translator",
   "version": "0.1.0",
-  "description": "Перевод страниц с английского на русский через локальную Ollama.",
+  "description": "Translates web pages and selected text from English via local Ollama; dubs YouTube videos via Silero.",
   "minimum_chrome_version": "121",
   "browser_specific_settings": {
     "gecko": {
@@ -51,11 +51,11 @@
   "commands": {
     "toggle-translation": {
       "suggested_key": { "default": "Alt+Shift+T" },
-      "description": "Перевести страницу / показать оригинал"
+      "description": "Translate the page / show the original"
     },
     "stop-all": {
       "suggested_key": { "default": "Alt+Shift+S" },
-      "description": "Стоп: оборвать все переводы и выгрузить модель"
+      "description": "Stop: abort all translations and unload the model"
     }
   }
 }
