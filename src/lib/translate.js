@@ -6,7 +6,7 @@ import { buildBatchRequest, buildSingleRequest, settingsPrompts } from "./prompt
 import { isBadTranslation, parseBatch, parseSingle } from "./parse.js";
 import "./tags.js"; // обычный скрипт, см. в нём
 
-const { hasTags, sameTags } = globalThis.__ollamaTranslator.tags;
+const { hasTags, sameTags, closeTags } = globalThis.__ollamaTranslator.tags;
 
 const RETRY_DELAYS_MS = [1000, 3000];
 
@@ -127,21 +127,23 @@ async function chatWithRetry(body, ctx) {
 // acceptUnchanged: вернувшийся без изменений текст — не ошибка (выделенное могло быть уже на
 // нужном языке или непереводимым).
 // Теги (lib/tags.js) в переводе должны быть те же, что в оригинале. Не совпали в батче — ошибка,
-// элемент переспросят одиночным запросом. Не совпали и в нём (final) — отдаём как есть:
-// content покажет перевод под оригиналом.
+// элемент переспросят одиночным запросом. Не совпали и в нём (final) — потерянные закрывающие
+// теги ставим сами (closeTags), а если сломано что-то ещё, отдаём как есть: content покажет
+// перевод под оригиналом.
 function checked(original, translation, { acceptUnchanged = false, final = false } = {}) {
   if (isBadTranslation(original, translation)) {
     if (acceptUnchanged && translation.trim()) return { text: translation };
     return { error: { code: ErrorCode.BAD_RESPONSE, message: "Модель вернула пустой или непереведённый текст" } };
   }
   if (hasTags(original) && !sameTags(original, translation)) {
+    const closed = final ? closeTags(original, translation) : null;
     console.warn(
-      `[ot] теги не совпали, ${final ? "покажу под оригиналом" : "переспрошу отдельно"}:`,
+      `[ot] теги не совпали, ${closed ? "закрыл потерянные" : final ? "покажу под оригиналом" : "переспрошу отдельно"}:`,
       original,
       "→",
       translation,
     );
-    if (final) return { text: translation };
+    if (final) return { text: closed ?? translation };
     return { error: { code: ErrorCode.BAD_RESPONSE, message: "Модель испортила разметку абзаца" } };
   }
   return { text: translation };

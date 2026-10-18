@@ -45,6 +45,49 @@
     return pieces;
   }
 
+  // Модель иногда теряет закрывающий тег, чаще всего у ссылки через границу предложений
+  // («<t1>stupid.People</t1> have» → «<t1>глупые.Люди каждый день»). Если в остальном теги те же
+  // (открывающие — в том же порядке, закрывающие — сразу за своими), потерянный закрываем через
+  // столько же слов, сколько их в теге оригинала, но не дальше следующего тега. Знаки препинания
+  // в конце (обычно точку в конце предложения) в тег не берём, если тег оригинала ими не кончался.
+  // → перевод с закрытыми тегами или null, если дело не только в них.
+  function closeTags(source, translation) {
+    const inside = new Map(); // номер тега → его текст в оригинале
+    let open = null;
+    for (const t of tokens(source)) {
+      if (!t.close) open = t;
+      else if (open?.id === t.id) inside.set(t.id, source.slice(open.end, t.index));
+    }
+    let fixed = "";
+    let at = 0;
+    open = null;
+    const close = (limit) => {
+      const original = inside.get(open.id) ?? "";
+      const text = translation.slice(open.end, limit);
+      const word = /\S+/g;
+      let end = 0;
+      for (let n = original.split(/\s+/).filter(Boolean).length; n > 0 && word.exec(text); n--) {
+        end = word.lastIndex;
+      }
+      if (!/[.,;:!?…]\s*$/.test(original)) end = text.slice(0, end).replace(/[\s.,;:!?…]+$/, "").length;
+      fixed += `${translation.slice(at, open.end + end)}</t${open.id}>`;
+      at = open.end + end;
+      open = null;
+    };
+    for (const t of tokens(translation)) {
+      if (t.close) {
+        if (open?.id !== t.id) return null;
+        open = null;
+      } else {
+        if (open) close(t.index);
+        open = t;
+      }
+    }
+    if (open) close(translation.length);
+    fixed += translation.slice(at);
+    return sameTags(source, fixed) ? fixed : null;
+  }
+
   const stripTags = (text) => text.replace(TAG_RE, "");
 
   // → [[начало, конец]] каждого тега вместе с разметкой: текст внутри резать нельзя.
@@ -65,6 +108,7 @@
     wrapTag,
     hasTags,
     sameTags,
+    closeTags,
     splitTags,
     stripTags,
     tagSpans,
