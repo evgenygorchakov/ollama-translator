@@ -3,7 +3,7 @@
 (() => {
   const ns = (window.__ollamaTranslator ??= {});
   ns.content?.dispose(); // осиротевший экземпляр после перезагрузки расширения
-  const { segment, render } = ns;
+  const { segment, render, hover } = ns;
 
   const FLUSH_MS = 50;
   const MUTATION_DEBOUNCE_MS = 300;
@@ -380,6 +380,7 @@
     for (const root of trees) if (!inTree(root, root)) rescan(root, cancelIds);
     for (const block of rows) if (!inTree(block)) rescan(block, cancelIds, true);
     sendCancel(cancelIds);
+    hover?.refresh(); // ряд под подсказкой могли переписать или снять
   }
 
   // ---------- Очередь и порт ----------
@@ -536,6 +537,8 @@
       attributeFilter: ["class", "style", "hidden", "open"],
       attributeOldValue: true,
     });
+    // оригинал при наведении; без hover.js перевод работает и так
+    hover?.start((block) => segmentsByBlock.get(block));
     console.info(`[ot] найдено фрагментов: ${found.length}`);
   }
 
@@ -552,6 +555,7 @@
     removedFrom = new Set();
     clearTimeout(flushTimer);
     flushTimer = null;
+    hover?.stop();
     // Порт не закрываем: оборванные отменой батчи ещё пришлют готовое, и снова включённый
     // перевод возьмёт его из memo, а не у модели. Умрёт порт — onPortDisconnect не станет
     // переподключаться: active уже false.

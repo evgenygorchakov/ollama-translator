@@ -14,3 +14,8 @@ span.ot-tr.ot-error[data-ot] {
   cursor: pointer;
   opacity: 1;
 }
+
+/* Ряд, чей оригинал показывает подсказка (hover.js). */
+::highlight(ot-original) {
+  background-color: rgb(255 213 0 / 0.3);
+}

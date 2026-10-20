@@ -202,12 +202,16 @@
     };
   }
 
-  // Виден ли перевод или ⚠: страница могла выкинуть span при перерисовке или переписать узлы.
-  function isShown(seg) {
-    if (seg.span) return seg.span.isConnected;
-    if (!seg.inPlace) return false;
+  // Стоит ли перевод на месте оригинала, а не под ним: страница могла переписать узлы.
+  function isReplaced(seg) {
+    if (seg.span || !seg.inPlace) return false;
     const nodes = targets(seg);
     return nodes.length > 0 && nodes.every((n) => n.isConnected && replaced.get(n)?.text === n.data);
+  }
+
+  // Виден ли перевод или ⚠: страница могла выкинуть span при перерисовке или переписать узлы.
+  function isShown(seg) {
+    return seg.span ? seg.span.isConnected : isReplaced(seg);
   }
 
   function remove(seg) {
@@ -239,6 +243,7 @@
     setNodes,
     forgetNode,
     rewrite,
+    isReplaced,
     isShown,
     remove,
     removeAll,

@@ -20,6 +20,7 @@ const CONTENT_SCRIPTS = [
   "src/lib/split.js",
   "src/page/render.js",
   "src/page/segment.js", // берёт sourceOf и hasText у render
+  "src/page/hover.js", // оригинал при наведении, включает его content.js
   "src/page/content.js",
 ];
 const CONTENT_CSS = ["src/page/content.css"];

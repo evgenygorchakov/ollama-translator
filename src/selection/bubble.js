@@ -260,10 +260,13 @@
   }
 
   function build() {
-    // своё имя тега: правила сайта вида div { … } до него не дотянутся
+    // Своё имя тега: правила сайта вида div { … } до него не дотянутся. Но элемент с дефисом в
+    // имени не определён, а сайты на веб-компонентах прячут такие (:not(:defined)) — отсюда
+    // visibility и opacity.
     const host = document.createElement("ot-selection-bubble");
     host.style.cssText =
       "position:fixed!important;z-index:2147483647!important;display:block!important;" +
+      "visibility:visible!important;opacity:1!important;" +
       "margin:0!important;padding:0!important;";
     const shadow = host.attachShadow({ mode: "closed" });
     const style = document.createElement("style");
