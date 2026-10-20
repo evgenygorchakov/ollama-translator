@@ -28,7 +28,12 @@
   "content_scripts": [
     {
       "matches": ["https://www.youtube.com/*"],
-      "js": ["src/shared/keepalive-port.js", "src/dub/player.js", "src/dub/content.js"],
+      "js": [
+        "src/shared/keepalive-port.js",
+        "src/shared/shadow-host.js",
+        "src/dub/player.js",
+        "src/dub/content.js"
+      ],
       "run_at": "document_idle"
     }
   ],

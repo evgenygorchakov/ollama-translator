@@ -260,17 +260,12 @@
   }
 
   function build() {
-    // Своё имя тега: правила сайта вида div { … } до него не дотянутся. Но элемент с дефисом в
-    // имени не определён, а сайты на веб-компонентах прячут такие (:not(:defined)) — отсюда
-    // visibility и opacity.
-    const host = document.createElement("ot-selection-bubble");
-    host.style.cssText =
+    const { host, shadow } = ns.shadowHost(
+      "ot-selection-bubble",
       "position:fixed!important;z-index:2147483647!important;display:block!important;" +
-      "visibility:visible!important;opacity:1!important;" +
-      "margin:0!important;padding:0!important;";
-    const shadow = host.attachShadow({ mode: "closed" });
-    const style = document.createElement("style");
-    style.textContent = STYLE;
+        "margin:0!important;padding:0!important;",
+      STYLE,
+    );
 
     const box = document.createElement("div");
     box.className = "box";
@@ -297,7 +292,7 @@
     body.className = "body";
 
     box.append(head, body);
-    shadow.append(style, box);
+    shadow.append(box);
     return { host, box, body, copyBtn, closeBtn };
   }
 

@@ -16,6 +16,7 @@ const { hasTags } = globalThis.__ollamaTranslator.tags;
 
 const CONTENT_SCRIPTS = [
   "src/shared/keepalive-port.js",
+  "src/shared/shadow-host.js",
   "src/lib/tags.js",
   "src/lib/split.js",
   "src/page/render.js",

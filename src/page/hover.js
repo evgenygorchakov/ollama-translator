@@ -4,7 +4,7 @@
 // что ссылки и кнопки под ней не закрывает. Включает и выключает content.js вместе с переводом.
 (() => {
   const ns = (window.__ollamaTranslator ??= {});
-  const { render } = ns;
+  const { render, segment, shadowHost } = ns;
 
   const SHOW_DELAY_MS = 500;
   // Подсказка уже на экране: столько ждём, прежде чем перейти к другому ряду или спрятать её, —
@@ -13,20 +13,22 @@
   const MARGIN = 8; // от краёв окна
   const GAP = 4; // от ряда
   const CURSOR_HEIGHT = 24; // стрелка указателя уходит вниз от его точки
+  const LINE_HEIGHT = 20; // строка подсказки, px
   const HIGHLIGHT = "ot-original"; // ::highlight в content.css
 
+  // Длинный оригинал обрезаем многоточием: строк — сколько влезет в полэкрана (show).
   const STYLE = `
     :host { all: initial; }
     .tip {
       --bg: #ffffff; --fg: #1f2328; --border: #d0d7de;
       box-sizing: border-box;
       width: max-content; max-width: min(560px, calc(100vw - ${2 * MARGIN}px));
-      max-height: 50vh; overflow: hidden;
+      display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden;
       padding: 6px 10px;
       background: var(--bg); color: var(--fg);
       border: 1px solid var(--border); border-radius: 6px;
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
-      font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+      font: 14px/${LINE_HEIGHT}px system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
       text-align: left; white-space: normal; overflow-wrap: anywhere;
     }
     @media (prefers-color-scheme: dark) {
@@ -38,19 +40,38 @@
   let rowsOf = null;
   let ui = null; // { host, tip }
   let shown = null; // сегмент, чей оригинал на экране
+  let shownAt = null; // рамка ряда, когда показали подсказку
   let candidate = null; // переведённый ряд под указателем
   let timer = null;
   let frame = 0;
-  let pointer = { target: null, x: 0, y: 0 };
+  let scrollFrame = 0;
+  let scrollRoots = []; // теневые корни над рядом с подсказкой
+  let pointer = null; // { x, y }; null — указатель вне окна
 
-  const normalize = (text) => text.replace(/\s+/g, " ").trim();
+  // Ряд — его текстовые узлы, а не всё от первого до последнего: между ними может стоять
+  // вынесенное из потока (выпадающее меню в ссылке, плавающая картинка), а это другие ряды.
+  function rangesOf(seg) {
+    return seg.nodes
+      .filter((node) => node.data)
+      .map((node) => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        return range;
+      });
+  }
 
-  function rangeOf(seg) {
-    const range = document.createRange();
-    const last = seg.nodes[seg.nodes.length - 1];
-    range.setStart(seg.nodes[0], 0);
-    range.setEnd(last, last.length);
-    return range;
+  // рамка вокруг текста ряда
+  function rectOf(ranges) {
+    const box = { top: Infinity, left: Infinity, bottom: -Infinity, right: -Infinity };
+    for (const range of ranges) {
+      const r = range.getBoundingClientRect();
+      if (!r.width && !r.height) continue; // скрытый узел
+      box.top = Math.min(box.top, r.top);
+      box.left = Math.min(box.left, r.left);
+      box.bottom = Math.max(box.bottom, r.bottom);
+      box.right = Math.max(box.right, r.right);
+    }
+    return box;
   }
 
   // Текстовый узел под указателем или ближайший к нему. Chrome до 128 знает только
@@ -61,38 +82,50 @@
     return node?.nodeType === Node.TEXT_NODE ? node : null;
   }
 
-  // Переведённый на месте ряд под указателем: ряд текстового узла под ним, если указатель в
-  // рамке ряда, — так и промежутки между строками абзаца считаются рядом. Ряд узла ищем у блоков
-  // над ним, ближние первыми. Рамку меряем только у этого ряда: в блоке с сотнями строк через
-  // <br> мерить на каждый кадр все — дорого.
-  function rowAt({ target, x, y }) {
-    const node = target && textAt(x, y);
+  // Переведённый на месте ряд в точке at: ряд текстового узла под ней, если она в рамке ряда, —
+  // так и промежутки между строками абзаца считаются рядом. Ряд узла ищем у блоков над ним,
+  // ближние первыми. Рамку меряем только у этого ряда: в блоке с сотнями строк через <br> мерить
+  // на каждый кадр все — дорого.
+  function rowAt(at) {
+    const node = at && textAt(at.x, at.y);
     for (let el = node?.parentElement; el; el = el.parentElement) {
       const seg = rowsOf(el)?.find((s) => s.nodes.includes(node));
       if (!seg) continue;
       if (!render.isReplaced(seg)) return null;
-      const r = rangeOf(seg).getBoundingClientRect();
-      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom ? seg : null;
+      const r = rectOf(rangesOf(seg));
+      return at.x >= r.left && at.x <= r.right && at.y >= r.top && at.y <= r.bottom ? seg : null;
     }
     return null;
   }
 
+  // Теневые деревья над узлом: прокрутка в них до document не доходит (scroll не composed).
+  // Узел, вставленный в <slot>, лежит в дереве своего слота.
+  function shadowRootsAbove(node) {
+    const roots = [];
+    for (let n = node; n; n = n.assignedSlot ?? n.parentNode ?? n.host) {
+      if (n.nodeType === Node.DOCUMENT_FRAGMENT_NODE) roots.push(n);
+    }
+    return roots;
+  }
+
+  function watchScroll(roots) {
+    for (const root of scrollRoots) root.removeEventListener("scroll", onScroll, true);
+    scrollRoots = roots;
+    for (const root of roots) root.addEventListener("scroll", onScroll, { capture: true, passive: true });
+  }
+
   function build() {
-    // Своё имя тега: правила сайта вида div { … } до него не дотянутся. Но элемент с дефисом в
-    // имени не определён, а сайты на веб-компонентах прячут такие (:not(:defined)) — отсюда
-    // visibility и opacity. Слоем ниже пузыря перевода выделенного: его не закроет.
-    const host = document.createElement("ot-original-tip");
-    host.style.cssText =
+    const { host, shadow } = shadowHost(
+      "ot-original-tip",
+      // слоем ниже пузыря перевода выделенного: его не закроет
       "position:fixed!important;z-index:2147483646!important;display:block!important;" +
-      "visibility:visible!important;opacity:1!important;" +
-      "margin:0!important;padding:0!important;pointer-events:none!important;";
-    const shadow = host.attachShadow({ mode: "closed" });
-    const style = document.createElement("style");
-    style.textContent = STYLE;
+        "margin:0!important;padding:0!important;pointer-events:none!important;",
+      STYLE,
+    );
     const tip = document.createElement("div");
     tip.className = "tip";
     tip.setAttribute("role", "tooltip");
-    shadow.append(style, tip);
+    shadow.append(tip);
     return { host, tip };
   }
 
@@ -104,8 +137,8 @@
     const h = tip.offsetHeight;
     const vw = document.documentElement.clientWidth;
     const vh = window.innerHeight;
-    const { y } = pointer;
-    const tops = [rect.top - GAP - h, rect.bottom + GAP, y - MARGIN - h, y + CURSOR_HEIGHT];
+    const tops = [rect.top - GAP - h, rect.bottom + GAP];
+    if (pointer) tops.push(pointer.y - MARGIN - h, pointer.y + CURSOR_HEIGHT);
     const top = tops.find((t) => t >= MARGIN && t + h <= vh - MARGIN) ?? MARGIN;
     const left = Math.min(Math.max(rect.left, MARGIN), Math.max(MARGIN, vw - w - MARGIN));
     host.style.setProperty("left", `${left}px`, "important");
@@ -114,6 +147,7 @@
 
   // Текст страницы — тоже только через textContent.
   function show(seg) {
+    const { normalize } = segment;
     const original = normalize(seg.nodes.map(render.sourceOf).join(""));
     // модель оставила текст как есть (имя, название) — показывать нечего
     if (!render.isReplaced(seg) || original === normalize(seg.nodes.map((n) => n.data).join(""))) {
@@ -122,11 +156,15 @@
     }
     ui ??= build();
     ui.tip.textContent = original;
+    const lines = Math.max(1, Math.floor(window.innerHeight / 2 / LINE_HEIGHT));
+    ui.tip.style.setProperty("-webkit-line-clamp", String(lines));
     if (!ui.host.isConnected) document.documentElement.append(ui.host);
     shown = seg;
-    const range = rangeOf(seg);
-    place(range.getBoundingClientRect());
-    CSS.highlights.set(HIGHLIGHT, new Highlight(range));
+    const ranges = rangesOf(seg);
+    shownAt = rectOf(ranges);
+    place(shownAt);
+    CSS.highlights.set(HIGHLIGHT, new Highlight(...ranges));
+    watchScroll(shadowRootsAbove(seg.block));
   }
 
   function hide() {
@@ -134,6 +172,7 @@
     shown = null;
     ui.host.remove();
     CSS.highlights.delete(HIGHLIGHT);
+    watchScroll([]);
   }
 
   // Ряд под указателем сменился — через паузу показываем его оригинал или прячем подсказку.
@@ -145,20 +184,25 @@
     candidate = row;
     clearTimeout(timer);
     if (row === shown) return;
-    timer = setTimeout(() => (row ? show(row) : hide()), shown ? SWITCH_DELAY_MS : SHOW_DELAY_MS);
+    // за паузу страница могла сдвинуть или спрятать ряд — показываем, только если он на месте
+    timer = setTimeout(() => {
+      if (row && rowAt(pointer) !== row) reset();
+      else if (row) show(row);
+      else hide();
+    }, shown ? SWITCH_DELAY_MS : SHOW_DELAY_MS);
   }
 
   function onPointerMove(e) {
     // тянут выделение или что-то перетаскивают — подсказка мешала бы
     if (e.pointerType !== "mouse" || e.buttons) return;
-    pointer = { target: e.target, x: e.clientX, y: e.clientY };
+    pointer = { x: e.clientX, y: e.clientY };
     frame ||= requestAnimationFrame(check);
   }
 
   // указатель ушёл из окна или во фрейм
   function onPointerOut(e) {
     if (e.relatedTarget || e.pointerType !== "mouse") return;
-    pointer = { target: null, x: 0, y: 0 };
+    pointer = null;
     frame ||= requestAnimationFrame(check);
   }
 
@@ -173,10 +217,21 @@
     if (e.key === "Escape") dismiss();
   }
 
-  // Прокрутка унесла ряд из-под подсказки и указателя — прячем её и ждём, где окажется указатель.
-  // Прокрутка в стороне (карусель, лента в соседней колонке) не мешает.
-  function onScroll(e) {
-    if ([shown, candidate].some((seg) => seg && e.target.contains(seg.block))) reset();
+  // Прокрутка унесла ряд из-под подсказки или указателя — прячем её и ждём, куда двинется
+  // указатель. Прокрутка в стороне (карусель, лента в соседней колонке) и подстройка прокрутки под
+  // подгруженное выше (scroll anchoring) ряд не двигают — подсказка остаётся.
+  function onScroll() {
+    if (shown || candidate) scrollFrame ||= requestAnimationFrame(afterScroll);
+  }
+
+  function afterScroll() {
+    scrollFrame = 0;
+    const moved = (seg) => {
+      const r = rectOf(rangesOf(seg));
+      return Math.abs(r.top - shownAt.top) > 1 || Math.abs(r.left - shownAt.left) > 1;
+    };
+    const gone = (seg) => (seg === shown ? moved(seg) : rowAt(pointer) !== seg);
+    if ([shown, candidate].some((seg) => seg && gone(seg))) reset();
   }
 
   function reset() {
@@ -186,12 +241,15 @@
   }
 
   // Страница поменялась под неподвижным указателем (content.js зовёт после разбора мутаций):
-  // ряд с подсказкой мог вернуться к оригиналу или получить новые узлы, а под указателем мог
-  // оказаться другой ряд или диалог.
+  // ряд с подсказкой мог вернуться к оригиналу или получить новые узлы, а над ним — лечь диалог.
+  // Тогда подсказку прячем, иначе обновляем. Новую без движения указателя не показываем, но если
+  // указатель уже перешёл на другой ряд и ждёт его подсказку, этот переход не обрываем.
   function refresh() {
-    if (!rowsOf) return;
-    if (shown) show(shown); // заново текст, место и подсветка, а если ряд не на месте — спрячет
-    if (pointer.target) frame ||= requestAnimationFrame(check);
+    if (!shown) return;
+    const row = rowAt(pointer);
+    if (row === shown) show(shown);
+    else if (row && row === candidate) hide();
+    else reset();
   }
 
   // rows(block) → сегменты блока
@@ -209,8 +267,10 @@
     if (!rowsOf) return;
     rowsOf = null;
     cancelAnimationFrame(frame);
-    frame = 0;
+    cancelAnimationFrame(scrollFrame);
+    frame = scrollFrame = 0;
     reset();
+    pointer = null;
     document.removeEventListener("pointermove", onPointerMove, true);
     document.removeEventListener("pointerout", onPointerOut, true);
     document.removeEventListener("pointerdown", dismiss, true);

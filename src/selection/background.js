@@ -11,7 +11,11 @@ import { onStop } from "../lib/stop.js";
 
 const MENU_ID = "translate-selection";
 const PORT_NAME = "translate-selection";
-const BUBBLE_SCRIPTS = ["src/shared/keepalive-port.js", "src/selection/bubble.js"];
+const BUBBLE_SCRIPTS = [
+  "src/shared/keepalive-port.js",
+  "src/shared/shadow-host.js",
+  "src/selection/bubble.js",
+];
 // Длиннее модель переводит минутами, а в num_ctx может и не влезть. Лимит передаём всплывашке:
 // она проверяет его до запроса и объясняет пользователю; здесь — на всякий случай.
 const MAX_CHARS = 5000;

@@ -161,18 +161,6 @@
   let classObserver = null;
   let pollTimer = null;
 
-  // Свой тег: правила сайта вида div { … } до него не дотянутся. Стили — внутри shadow, текст
-  // только через textContent (на YouTube innerHTML к тому же запрещён Trusted Types).
-  function shadowHost(tag, hostCss, css) {
-    const host = document.createElement(tag);
-    host.style.cssText = hostCss;
-    const shadow = host.attachShadow({ mode: "closed" });
-    const style = document.createElement("style");
-    style.textContent = css;
-    shadow.append(style);
-    return { host, shadow };
-  }
-
   function element(tag, className, text = "") {
     const node = document.createElement(tag);
     node.className = className;
@@ -211,7 +199,7 @@
   }
 
   function buildPanel() {
-    const { host, shadow } = shadowHost(
+    const { host, shadow } = ns.shadowHost(
       "ot-dub-panel",
       "position:absolute!important;top:12px!important;left:12px!important;" +
         "z-index:60!important;margin:0!important;padding:0!important;",
@@ -276,7 +264,7 @@
 
   // Слой на весь плеер, мышь проходит сквозь него к видео.
   function buildSubtitles() {
-    const { host, shadow } = shadowHost(
+    const { host, shadow } = ns.shadowHost(
       "ot-dub-subtitles",
       "position:absolute!important;inset:0!important;z-index:45!important;" +
         "margin:0!important;padding:0!important;pointer-events:none!important;",

@@ -278,5 +278,5 @@
     return segments;
   }
 
-  ns.segment = { findSegments, blockOf, isBlock, isExcluded, resetCache };
+  ns.segment = { findSegments, blockOf, isBlock, isExcluded, resetCache, normalize };
 })();
