@@ -48,10 +48,15 @@
   // Модель иногда теряет закрывающий тег, чаще всего у ссылки через границу предложений
   // («<t1>stupid.People</t1> have» → «<t1>глупые.Люди каждый день»). Если в остальном теги те же
   // (открывающие — в том же порядке, закрывающие — сразу за своими), потерянный закрываем через
-  // столько же слов, сколько их в теге оригинала, но не дальше следующего тега. Знаки препинания
-  // в конце (обычно точку в конце предложения) в тег не берём, если тег оригинала ими не кончался.
+  // столько слов, сколько их в теге оригинала, с поправкой на то, насколько перевод короче
+  // оригинала или длиннее (в русском нет артиклей: «the guide» → «руководство»), но не дальше
+  // следующего тега. Знаки препинания в конце (обычно точку в конце предложения) в тег не берём,
+  // если тег оригинала ими не кончался. Слов для тега не нашлось — ссылка на странице осталась бы
+  // без текста: пусть лучше перевод встанет под оригиналом.
   // → перевод с закрытыми тегами или null, если дело не только в них.
   function closeTags(source, translation) {
+    const words = (text) => stripTags(text).split(/\s+/).filter(Boolean).length;
+    const ratio = words(translation) / (words(source) || 1);
     const inside = new Map(); // номер тега → его текст в оригинале
     let open = null;
     for (const t of tokens(source)) {
@@ -61,29 +66,33 @@
     let fixed = "";
     let at = 0;
     open = null;
+    // → false, если для тега не нашлось слов
     const close = (limit) => {
       const original = inside.get(open.id) ?? "";
       const text = translation.slice(open.end, limit);
       const word = /\S+/g;
       let end = 0;
-      for (let n = original.split(/\s+/).filter(Boolean).length; n > 0 && word.exec(text); n--) {
+      const count = words(original);
+      for (let n = count && Math.max(1, Math.round(count * ratio)); n > 0 && word.exec(text); n--) {
         end = word.lastIndex;
       }
       if (!/[.,;:!?…]\s*$/.test(original)) end = text.slice(0, end).replace(/[\s.,;:!?…]+$/, "").length;
+      if (count && !end) return false;
       fixed += `${translation.slice(at, open.end + end)}</t${open.id}>`;
       at = open.end + end;
       open = null;
+      return true;
     };
     for (const t of tokens(translation)) {
       if (t.close) {
         if (open?.id !== t.id) return null;
         open = null;
       } else {
-        if (open) close(t.index);
+        if (open && !close(t.index)) return null;
         open = t;
       }
     }
-    if (open) close(translation.length);
+    if (open && !close(translation.length)) return null;
     fixed += translation.slice(at);
     return sameTags(source, fixed) ? fixed : null;
   }
