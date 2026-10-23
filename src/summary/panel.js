@@ -1,6 +1,6 @@
-// Панель с кратким содержанием страницы. Внедряется по кнопке в popup или из контекстного меню,
-// ответ модели получает через порт "summary" по мере генерации. От перевода страницы,
-// выделенного и озвучки не зависит. Текст модели — только textContent.
+// Панель с кратким содержанием страницы или выделенного. Внедряется по кнопке в popup или из
+// контекстного меню, ответ модели получает через порт "summary" по мере генерации. От перевода
+// страницы, выделенного и озвучки не зависит. Текст модели — только textContent.
 (() => {
   const ns = (window.__ollamaTranslator ??= {});
   ns.summary?.dispose(); // осиротевший экземпляр после перезагрузки расширения
@@ -17,6 +17,26 @@
   // Короче — сокращать нечего.
   const MIN_CHARS = 200;
   const MARGIN = 8;
+
+  // Надписи для страницы и выделенного — по source.kind из open().
+  const WORDING = {
+    page: {
+      title: "Краткое содержание",
+      reading: "Читаю страницу…",
+      parts: "Страница длинная — читаю по частям",
+      partly: "Учтено начало страницы",
+      whole: "Учтён весь текст страницы",
+      tooShort: "На странице почти нет текста — сокращать нечего",
+    },
+    selection: {
+      title: "Кратко о выделенном",
+      reading: "Читаю выделенное…",
+      parts: "Выделено много — читаю по частям",
+      partly: "Учтено начало выделенного",
+      whole: "Учтён весь выделенный текст",
+      tooShort: "Выделено слишком мало — тут почти нечего сокращать",
+    },
+  };
 
   const STYLE = `
     :host { all: initial; }
@@ -81,8 +101,9 @@
     .retry { margin-top: 6px; color: var(--accent); padding: 2px 0; }
   `;
 
-  // { host, panel, body, foot, copyBtn, lengthBtns, source: { title, text }, length,
+  // { host, panel, body, foot, copyBtn, lengthBtns, words, source: { title, text }, length,
   //   results: { [length]: { text, cut, sent } }, sent: { used, total } | null, conn }
+  // words — надписи из WORDING.
   // sent — сколько текста ушло модели в последнем запросе (сообщение source).
   let current = null;
 
@@ -99,14 +120,14 @@
 
   // status — что идёт сейчас («Пишу…»), cut — ответ упёрся в num_ctx.
   function renderFoot(status = "", cut = false) {
-    const { foot, sent } = current;
+    const { foot, sent, words } = current;
     const parts = [];
     if (status) parts.push(status);
     if (sent) {
       parts.push(
         sent.used < sent.total
-          ? `Учтено начало страницы: ${percent(sent.used, sent.total)}% текста`
-          : "Учтён весь текст страницы",
+          ? `${words.partly}: ${percent(sent.used, sent.total)}% текста`
+          : words.whole,
       );
     }
     const lines = [parts.join(" · ")];
@@ -174,7 +195,7 @@
       return;
     }
     state.sent = null;
-    showMessage("status", "Читаю страницу…", false);
+    showMessage("status", state.words.reading, false);
     renderFoot();
     // после stopPort() порт ничего не вызывает — ответ всегда к этому state и этой длине
     try {
@@ -195,7 +216,7 @@
 
   // длинный текст модель читает по частям — см. summary/background.js
   function progressText({ step, part, parts }) {
-    if (step === "part") return `Страница длинная — читаю по частям: ${part} из ${parts}…`;
+    if (step === "part") return `${current.words.parts}: ${part} из ${parts}…`;
     if (step === "merge") return "Свожу заметки по частям…";
     return "Пишу краткое содержание…";
   }
@@ -276,7 +297,7 @@
     current = null;
   }
 
-  function build() {
+  function build(words) {
     const { host, shadow } = ns.shadowHost(
       "ot-summary-panel",
       `position:fixed!important;top:${MARGIN}px!important;right:${MARGIN}px!important;` +
@@ -286,13 +307,13 @@
 
     const panel = el("div", "panel");
     panel.setAttribute("role", "region");
-    panel.setAttribute("aria-label", "Краткое содержание");
+    panel.setAttribute("aria-label", words.title);
 
     const head = el("div", "head");
     const closeBtn = el("button", "close", "×");
     closeBtn.title = "Закрыть (Esc)";
     closeBtn.addEventListener("click", close);
-    head.append(el("span", "title", "Краткое содержание"), closeBtn);
+    head.append(el("span", "title", words.title), closeBtn);
 
     const bar = el("div", "bar");
     const lengths = el("div", "lengths");
@@ -324,13 +345,21 @@
     return { host, panel, body, foot, copyBtn, lengthBtns };
   }
 
-  function open() {
+  // source — { kind: "page" } или { kind: "selection", text } из summary/background.js: текст
+  // страницы панель берёт сама, выделенный — оттуда (выделение могло быть во вложенном фрейме).
+  // Заголовок страницы — модели для контекста, и для выделенного тоже.
+  function open(source = { kind: "page" }) {
     close();
-    current = { ...build(), source: extract.page(), results: {}, sent: null, conn: null };
+    const selection = source.kind === "selection";
+    const words = WORDING[selection ? "selection" : "page"];
+    const text = selection
+      ? { title: document.title.trim(), text: extract.normalize(String(source.text ?? "")) }
+      : extract.page();
+    current = { ...build(words), words, source: text, results: {}, sent: null, conn: null };
     setLength(DEFAULT_LENGTH);
     document.documentElement.append(current.host);
     if (current.source.text.length < MIN_CHARS) {
-      showMessage("status", "На странице почти нет текста — сокращать нечего", false);
+      showMessage("status", words.tooShort, false);
       return;
     }
     const state = current;

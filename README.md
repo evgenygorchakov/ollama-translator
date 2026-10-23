@@ -1,7 +1,8 @@
 # Ollama Translator
 
-Chrome and Firefox extension that translates web pages and selected text from English through a
-local [Ollama](https://ollama.com) and dubs YouTube videos in Russian through Silero.
+Chrome and Firefox extension that translates web pages and selected text from English and
+summarizes them through a local [Ollama](https://ollama.com), and dubs YouTube videos in Russian
+through Silero.
 
 ## Setup
 
@@ -24,3 +25,11 @@ local [Ollama](https://ollama.com) and dubs YouTube videos in Russian through Si
    `sup/optional/voice`.
 
 Settings are stored in the browser and don't sync between machines.
+
+## Summary
+
+«Краткое содержание» in the popup or «Краткое содержание страницы» in the page context menu opens
+a panel with a summary of the page's main text in the translation language; «Кратко о выделенном»
+in the selection context menu does the same for the selected text. Switch between a short and a
+detailed summary in the panel. A long page is read part by part, up to 150 000 characters, so it
+takes several requests to the model.

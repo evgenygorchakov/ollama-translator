@@ -81,8 +81,10 @@
     }
   }
 
+  // Пробелы и пустые строки: подряд — одной. Им же чистим выделенный текст.
   function normalize(text) {
     return text
+      .replace(/\r\n?/g, "\n")
       .replace(/[^\S\n]+/g, " ")
       .replace(/ *\n */g, "\n")
       .replace(/\n{3,}/g, "\n\n")
@@ -96,5 +98,5 @@
     return { title: document.title.trim(), text: normalize(out.join("")) };
   }
 
-  ns.summaryExtract = { page };
+  ns.summaryExtract = { page, normalize };
 })();

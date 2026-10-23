@@ -1,6 +1,7 @@
-// Краткое содержание страницы, часть service worker: кнопка в popup (сообщение summarizeTab),
-// пункт контекстного меню на странице, внедрение панели (panel.js) и порт "summary", по которому
-// она просит краткое содержание. От перевода страницы, выделенного и озвучки не зависит.
+// Краткое содержание страницы и выделенного, часть service worker: кнопка в popup (сообщение
+// summarizeTab), пункты контекстного меню на странице и на выделенном, внедрение панели
+// (panel.js) и порт "summary", по которому она просит краткое содержание. От перевода страницы,
+// выделенного и озвучки не зависит.
 //
 // Один порт — один запрос. Панель → сюда: summarize { text, title, length }; ping.
 // Отсюда → панели: source { used, total } — сколько символов текста ушло модели;
@@ -27,6 +28,7 @@ import { cutText, inputChars, splitText } from "./lib/chunks.js";
 
 const PORT_NAME = "summary";
 const PAGE_MENU_ID = "summarize-page";
+const SELECTION_MENU_ID = "summarize-selection";
 const PANEL_SCRIPTS = [
   "src/shared/keepalive-port.js",
   "src/shared/shadow-host.js",
@@ -48,21 +50,28 @@ chrome.runtime.onInstalled.addListener(() => {
     title: "Краткое содержание страницы",
     contexts: ["page"],
   });
+  ensureMenu({
+    id: SELECTION_MENU_ID,
+    title: "Кратко о выделенном",
+    contexts: ["selection"],
+  });
 });
 
-// Панель — в главном фрейме. panel.js внедряем, только если его там ещё нет или остался
-// осиротевший экземпляр после перезагрузки расширения.
-async function openPanel(tabId) {
+// Панель — в главном фрейме, даже если выделение во вложенном. panel.js внедряем, только если
+// его там ещё нет или остался осиротевший экземпляр после перезагрузки расширения.
+// source — { kind: "page" } | { kind: "selection", text }, см. open в panel.js.
+async function openPanel(tabId, source = { kind: "page" }) {
   const target = { tabId };
   const tryOpen = async () => {
     const [injection] = await chrome.scripting.executeScript({
       target,
-      func: () => {
+      func: (src) => {
         const panel = window.__ollamaTranslator?.summary;
         if (!panel?.alive?.()) return false;
-        panel.open();
+        panel.open(src);
         return true;
       },
+      args: [source],
     });
     return injection?.result === true;
   };
@@ -71,10 +80,45 @@ async function openPanel(tabId) {
   if (!(await tryOpen())) throw new Error("панель не запустилась");
 }
 
+// Выделенное со страницы, во фрейме выделения: в тексте из меню Chrome теряет переносы строк.
+// Выделение в input/textarea Selection API не видит — тогда берём выделенное в поле с фокусом.
+// Во фрейм с другого сайта activeTab доступа не даёт — тогда текст из меню.
+async function selectedText(tabId, frameId, menuText) {
+  try {
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [frameId] },
+      func: () => {
+        const text = window.getSelection()?.toString() ?? "";
+        if (text.trim()) return text;
+        const field = document.activeElement;
+        if (field?.matches("textarea, input") && field.selectionEnd > field.selectionStart) {
+          return field.value.slice(field.selectionStart, field.selectionEnd);
+        }
+        return "";
+      },
+    });
+    if (injection?.result?.trim()) return injection.result;
+  } catch {
+    // фрейм недоступен — ниже текст из меню
+  }
+  return menuText;
+}
+
+async function openFromMenu(info, tab) {
+  if (info.menuItemId === PAGE_MENU_ID) {
+    await openPanel(tab.id);
+  } else {
+    const text = await selectedText(tab.id, info.frameId ?? 0, info.selectionText ?? "");
+    await openPanel(tab.id, { kind: "selection", text });
+  }
+}
+
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId !== PAGE_MENU_ID || !tab?.id) return;
+  if (![PAGE_MENU_ID, SELECTION_MENU_ID].includes(info.menuItemId) || !tab?.id) return;
   // chrome://, Chrome Web Store, встроенный просмотрщик PDF — туда скрипты не внедрить
-  openPanel(tab.id).catch((err) => console.warn("[ot] не удалось показать краткое содержание:", err.message));
+  openFromMenu(info, tab).catch((err) =>
+    console.warn("[ot] не удалось показать краткое содержание:", err.message),
+  );
 });
 
 // открывать панель — только страницам расширения (popup), не content scripts

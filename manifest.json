@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Ollama Translator",
   "version": "0.1.0",
-  "description": "Translates web pages and selected text from English via local Ollama; dubs YouTube videos via Silero.",
+  "description": "Translates and summarizes web pages and selected text via local Ollama; dubs YouTube videos via Silero.",
   "minimum_chrome_version": "121",
   "browser_specific_settings": {
     "gecko": {
