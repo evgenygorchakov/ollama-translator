@@ -2,7 +2,7 @@
 // обрабатывает сам: делит батч, переспрашивает по одному, помечает блок ошибкой.
 
 // Модели с thinking иногда всё равно пишут рассуждение, даже при think: false.
-function stripThinking(content) {
+export function stripThinking(content) {
   return String(content ?? "").replace(/<think>[\s\S]*?<\/think>/gi, "");
 }
 

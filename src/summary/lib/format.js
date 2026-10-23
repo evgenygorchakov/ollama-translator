@@ -7,14 +7,14 @@
   const ns = (globalThis.__ollamaTranslator ??= {});
 
   const HEADING = /^#{1,6}\s+/;
-  const BULLET = /^(?:[-*•–—]|\d+[.)])\s+/;
+  // номер пункта — до двух цифр: «2024. Год начался…» — абзац, а не пункт
+  const BULLET = /^(?:[-*•–—]|\d{1,2}[.)])\s+/;
   // строка целиком жирная («**Итоги:**») — модель так пишет подзаголовки
   const BOLD_LINE = /^\*\*[^*]+\*\*:?$/;
 
   function unmark(line) {
     return line
       .replace(/\*\*(.+?)\*\*/g, "$1")
-      .replace(/__(.+?)__/g, "$1")
       .replace(/`([^`]+)`/g, "$1")
       .trim();
   }

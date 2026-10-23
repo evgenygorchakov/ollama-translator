@@ -5,15 +5,27 @@
 
   // Корень с основным текстом — не меньше стольких символов, иначе весь body.
   const MIN_ROOT_CHARS = 500;
-  // Поддеревья, которые не читаем. header пропускаем отдельно — только шапку сайта (isSiteHeader).
+  // Поддеревья, которые не читаем. header пропускаем отдельно — только шапку сайта (isSiteHeader),
+  // form и aria-hidden — тоже отдельно (WRAPPER_SELECTOR). hidden="until-found" — свёрнутое, но
+  // находимое поиском по странице, его читаем. [data-ot] — разметка перевода страницы
+  // (page/render.js): ⚠ и перевод под оригиналом, а оригинал и так на месте.
   const SKIP_SELECTOR = [
     "script", "style", "noscript", "template", "svg", "math", "canvas", "iframe", "object",
-    "video", "audio", "img", "picture", "input", "select", "textarea", "button", "form",
-    "nav", "aside", "footer", "dialog", "[hidden]", "[aria-hidden='true']", "[aria-modal='true']",
+    "video", "audio", "img", "picture", "input", "select", "textarea", "button",
+    "nav", "aside", "footer", "dialog", "[hidden]:not([hidden='until-found' i])",
+    "[aria-modal='true']", "[data-ot]",
     "[role='navigation']", "[role='banner']", "[role='contentinfo']", "[role='complementary']",
     "[role='search']", "[role='menu']", "[role='menubar']", "[role='toolbar']", "[role='dialog']",
     "[role='alertdialog']", "[contenteditable='true']",
   ].join(", ");
+  // Обычно это поиск, подписка, иконки — их не читаем. Но бывает, что они оборачивают всю
+  // страницу: ASP.NET WebForms кладёт её в form, а открытое модальное окно (cookie-баннер) ставит
+  // aria-hidden всему приложению. Такую обёртку — больше половины видимого текста корня (см.
+  // visibleChars) — читаем.
+  const WRAPPER_SELECTOR = "form, [aria-hidden='true']";
+  // white-space-collapse, при которых перенос строки в тексте виден. При остальных перенос в
+  // исходнике HTML — просто пробел.
+  const KEEPS_BREAKS = new Set(["preserve", "preserve-breaks", "break-spaces"]);
   // Перед и после них — пустая строка: модели легче видеть заголовки и абзацы.
   const PARAGRAPH_TAGS = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "table"]);
 
@@ -47,15 +59,17 @@
 
   // Текст поддерева в out (массив строк). Пункты списков — с «- », вложенные списки — плоско.
   // Открытые shadow root читаем вместо light DOM, а слоты в них — по их содержимому; закрытые
-  // не видны.
-  function collect(node, out) {
+  // не видны. breaks — переносы строк в тексте node видны (KEEPS_BREAKS); wrapperChars — от
+  // скольких символов видимого текста form и aria-hidden считаем обёрткой страницы
+  // (WRAPPER_SELECTOR).
+  function collect(node, out, { breaks, wrapperChars }) {
     const children =
       node.localName === "slot" && node.assignedNodes().length
         ? node.assignedNodes()
         : (node.shadowRoot ?? node).childNodes;
     for (const child of children) {
       if (child.nodeType === Node.TEXT_NODE) {
-        out.push(child.data);
+        out.push(breaks ? child.data : child.data.replace(/[\r\n]+/g, " "));
         continue;
       }
       if (child.nodeType !== Node.ELEMENT_NODE) continue;
@@ -64,21 +78,31 @@
         continue;
       }
       if (child.matches(SKIP_SELECTOR) || isSiteHeader(child)) continue;
+      if (child.matches(WRAPPER_SELECTOR) && visibleChars(child, wrapperChars) < wrapperChars) continue;
       const style = getComputedStyle(child);
       if (style.display === "none" || style.visibility === "hidden") continue;
+      const opts = { breaks: KEEPS_BREAKS.has(style.whiteSpaceCollapse), wrapperChars };
       if (child.localName === "li") {
         // <li><p>…</p></li>: маркер — перед текстом, а не перед пустой строкой абзаца
         const inner = [];
-        collect(child, inner);
+        collect(child, inner, opts);
         const text = normalize(inner.join(""));
         if (text) out.push("\n- ", text.replace(/\n+/g, "\n"), "\n");
         continue;
       }
       const gap = gapOf(child, style.display);
       out.push(gap);
-      collect(child, out);
+      collect(child, out, opts);
       out.push(gap);
     }
+  }
+
+  // Длина видимого текста: без скриптов и стилей — на SPA JSON с данными страницы бывает больше
+  // самого текста. textContent короче min — дальше не считаем: innerText почти никогда не длиннее,
+  // а для него нужна раскладка. У элементов не из HTML (XML-документ) innerText нет — textContent.
+  function visibleChars(el, min = 0) {
+    const all = el.textContent.length;
+    return all < min ? all : (el.innerText ?? el.textContent).length;
   }
 
   // Пробелы и пустые строки: подряд — одной. Им же чистим выделенный текст.
@@ -93,8 +117,12 @@
 
   // → { title, text }
   function page() {
+    const root = pickRoot();
     const out = [];
-    collect(pickRoot(), out);
+    collect(root, out, {
+      breaks: KEEPS_BREAKS.has(getComputedStyle(root).whiteSpaceCollapse),
+      wrapperChars: visibleChars(root) / 2,
+    });
     return { title: document.title.trim(), text: normalize(out.join("")) };
   }
 

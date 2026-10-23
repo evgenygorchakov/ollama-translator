@@ -12,6 +12,7 @@
 // Панель закрыли или сменили длину — порт отключился — запрос к Ollama отменён.
 
 import { ErrorCode, OllamaError } from "../lib/ollama.js";
+import { stripThinking } from "../lib/parse.js";
 import { getSettings } from "../lib/settings.js";
 import { chatWithRetry, toOllamaError } from "../lib/translate.js";
 import { withPrioritySlot } from "../lib/priority.js";
@@ -137,6 +138,7 @@ function partialSender(port) {
   let latest = "";
   return {
     push(content) {
+      if (!content.trim()) return; // модель ещё рассуждает — показывать нечего
       latest = content;
       timer ||= setTimeout(() => {
         timer = 0;
@@ -155,26 +157,63 @@ function partialSender(port) {
 // job — запрос одной панели: { port, controller, queued }; queued — сколько запросов к модели
 // у него ещё впереди, для «■ Стоп» в popup.
 
-// Каждый запрос — со своим слотом (общий с переводом лимит, перед очередью перевода страниц):
-// между частями длинного текста успевает перевод выделенного. → { content, doneReason }
-function ask(job, build, opts) {
-  return withPrioritySlot({ signal: job.controller.signal }, (ctx) =>
-    chatWithRetry(build(ctx), ctx, opts),
-  );
+// Модели с thinking иногда пишут рассуждение и при think: false — его вырезаем, а пока оно не
+// закрыто (ответ ещё идёт), не показываем и начатое.
+function withoutThinking(content) {
+  return stripThinking(content).replace(/<think>[\s\S]*$/i, "");
 }
 
-// Заметки по частям: key → { parts, notes, merged }. notes[i] — заметки по parts[i], как только
-// готовы: оборванный запрос (смена длины, «Стоп») продолжится с той же части, а другая длина
-// возьмёт merged — заметки одни на обе длины. Map в порядке использования, старые вытесняются.
-const notesCache = new Map();
+// Каждый запрос — со своим слотом (общий с переводом лимит, перед очередью перевода страниц):
+// между частями длинного текста успевает перевод выделенного. onContent — см. chat в
+// lib/ollama.js. И ему, и в ответе content — без рассуждения. → { content, doneReason }
+function ask(job, build, { onContent } = {}) {
+  return withPrioritySlot({ signal: job.controller.signal }, async (ctx) => {
+    const res = await chatWithRetry(build(ctx), ctx, {
+      onContent: onContent && ((content) => onContent(withoutThinking(content))),
+    });
+    return { ...res, content: withoutThinking(res.content) };
+  });
+}
 
-function notesEntry(key, text, budget) {
-  let entry = notesCache.get(key);
-  if (entry) notesCache.delete(key);
-  else entry = { parts: splitText(text, budget), notes: [], merged: null };
-  notesCache.set(key, entry);
-  while (notesCache.size > NOTES_CACHE_SIZE) notesCache.delete(notesCache.keys().next().value);
-  return entry;
+// Заметки по частям: SHA-256 от key (модель, язык, размер части, текст) → { notes, merged }.
+// notes[i] — заметки по i-й части splitText, как только готовы (null — ещё нет): оборванный
+// запрос (смена длины, «Стоп») продолжится с той же части, а другая длина возьмёт merged —
+// заметки одни на обе длины. Копия — в storage.session: service worker засыпает через 30 с
+// простоя, а «Подробно» обычно нажимают, прочитав «Коротко». Map в порядке использования,
+// старые вытесняются.
+const NOTES_KEY = "summaryNotes";
+let notesCache = null; // промис Map, из storage.session при первом обращении
+
+function loadNotes() {
+  notesCache ??= chrome.storage.session.get(NOTES_KEY).then(
+    (data) => new Map(Array.isArray(data[NOTES_KEY]) ? data[NOTES_KEY] : []),
+    () => new Map(),
+  );
+  return notesCache;
+}
+
+// Не записалось (не хватило квоты) — заметки остаются в памяти, пока service worker не уснёт.
+async function saveNotes() {
+  const cache = await loadNotes();
+  await chrome.storage.session.set({ [NOTES_KEY]: [...cache] }).catch(() => {});
+}
+
+async function sha256(text) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// → { entry, parts }
+async function notesEntry(key, text, budget) {
+  const [cache, hash] = await Promise.all([loadNotes(), sha256(key)]);
+  const parts = splitText(text, budget);
+  let entry = cache.get(hash);
+  cache.delete(hash);
+  if (entry?.notes?.length !== parts.length) entry = { notes: parts.map(() => null), merged: null };
+  cache.set(hash, entry);
+  while (cache.size > NOTES_CACHE_SIZE) cache.delete(cache.keys().next().value);
+  saveNotes();
+  return { entry, parts };
 }
 
 // Заметки по частям не влезают в один запрос — сводим их группами, пока не влезут. Если модель
@@ -195,11 +234,11 @@ async function mergeNotes(job, text, { title, lang, budget }) {
 }
 
 // Длинный текст → заметки по частям, сведённые так, чтобы влезли в один запрос.
-async function notesOf(job, text, { title, lang, budget }) {
-  const entry = notesEntry(`${lang}|${budget}|${text}`, text, budget);
+async function notesOf(job, text, { title, lang, budget, model }) {
+  const { entry, parts } = await notesEntry(`${model}|${lang}|${budget}|${text}`, text, budget);
   if (entry.merged !== null) return entry.merged;
-  const { parts, notes } = entry;
-  const todo = parts.map((_, i) => i).filter((i) => notes[i] === undefined);
+  const { notes } = entry;
+  const todo = parts.map((_, i) => i).filter((i) => notes[i] === null);
   for (const [k, i] of todo.entries()) {
     job.queued = todo.length - k; // оставшиеся части и итог
     safePost(job.port, { type: "progress", step: "part", part: i + 1, parts: parts.length });
@@ -207,20 +246,23 @@ async function notesOf(job, text, { title, lang, budget }) {
       buildNotesRequest({ text: parts[i], title, part: i + 1, parts: parts.length, lang }, ctx),
     );
     notes[i] = content.trim(); // пусто — в части не нашлось важного, это не ошибка
+    saveNotes();
   }
+  job.queued = 1; // сведение заметок и итог
   const all = notes.map((n, i) => `Part ${i + 1}:\n${n}`).join("\n\n");
   entry.merged = await mergeNotes(job, all, { title, lang, budget });
+  saveNotes();
   return entry.merged;
 }
 
 // → { text, cut }
 async function summarize(job, { text, title, length }) {
-  const { numCtx, targetLang: lang } = await getSettings();
+  const { numCtx, targetLang: lang, model } = await getSettings();
   const budget = inputChars(numCtx);
   const used = cutText(text, MAX_CHARS);
   safePost(job.port, { type: "source", used: used.length, total: text.length });
   const fromNotes = used.length > budget;
-  const source = fromNotes ? await notesOf(job, used, { title, lang, budget }) : used;
+  const source = fromNotes ? await notesOf(job, used, { title, lang, budget, model }) : used;
   job.queued = 0;
   if (fromNotes) safePost(job.port, { type: "progress", step: "final" });
   const partial = partialSender(job.port);
@@ -230,8 +272,15 @@ async function summarize(job, { text, title, length }) {
       (ctx) => buildSummaryRequest({ text: source, title, length, lang, fromNotes }, ctx),
       { onContent: partial.push },
     );
-    if (!content.trim()) throw new OllamaError(ErrorCode.BAD_RESPONSE, "модель вернула пустой ответ");
-    return { text: content.trim(), cut: doneReason === "length" };
+    const cut = doneReason === "length";
+    // пусто и обрезано — модель упёрлась в num_ctx, ещё рассуждая
+    if (!content.trim()) {
+      const message = cut
+        ? "ответ обрезан: не хватило контекста модели (num_ctx в настройках)"
+        : "модель вернула пустой ответ";
+      throw new OllamaError(ErrorCode.BAD_RESPONSE, message);
+    }
+    return { text: content.trim(), cut };
   } finally {
     partial.cancel();
   }
