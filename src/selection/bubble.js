@@ -184,27 +184,10 @@
     state.conn.post({ type: "translate", text: state.text }); // порт мёртв — onDisconnect покажет ошибку
   }
 
-  // Буфер обмена: navigator.clipboard есть не везде (нет на http-страницах), тогда execCommand.
   async function copy() {
     const { translation, copyBtn, box } = current;
-    let ok = true;
-    try {
-      await navigator.clipboard.writeText(translation);
-    } catch {
-      const area = document.createElement("textarea");
-      area.value = translation;
-      area.style.cssText = "position:fixed;opacity:0;";
-      box.append(area);
-      area.focus();
-      area.select();
-      try {
-        ok = document.execCommand("copy"); // false — страница или браузер не дали скопировать
-      } catch {
-        ok = false;
-      }
-      area.remove();
-      copyBtn.focus();
-    }
+    const ok = await ns.copyText(translation, box);
+    copyBtn.focus();
     copyBtn.textContent = ok ? "Скопировано" : "Не скопировалось";
     setTimeout(() => {
       if (copyBtn.isConnected) copyBtn.textContent = "Копировать";

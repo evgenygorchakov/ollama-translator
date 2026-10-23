@@ -62,8 +62,9 @@ export function batchSchema(count) {
   };
 }
 
-// opts — контекст перевода: { model, prompts, temperature, numCtx, disableThinking }
-function baseRequest(opts) {
+// opts — контекст перевода: { model, prompts, temperature, numCtx, disableThinking }.
+// Общая часть тела запроса: модуль со своими запросами к модели добавляет к ней messages.
+export function baseRequest(opts) {
   return {
     model: opts.model,
     keep_alive: "30m",

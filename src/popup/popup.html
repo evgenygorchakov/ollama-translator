@@ -5,6 +5,7 @@
     <title>Ollama Translator</title>
     <link rel="stylesheet" href="popup.css" />
     <script type="module" src="popup.js"></script>
+    <script type="module" src="../summary/popup.js"></script>
   </head>
   <body>
     <header>
@@ -44,5 +45,10 @@
     </div>
     <p id="progress" class="note" hidden></p>
     <p id="note" class="note" hidden></p>
+
+    <div class="actions">
+      <button id="summary" type="button" disabled>Краткое содержание</button>
+    </div>
+    <p id="summary-note" class="note" hidden></p>
   </body>
 </html>

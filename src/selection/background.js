@@ -14,6 +14,7 @@ const PORT_NAME = "translate-selection";
 const BUBBLE_SCRIPTS = [
   "src/shared/keepalive-port.js",
   "src/shared/shadow-host.js",
+  "src/shared/clipboard.js",
   "src/selection/bubble.js",
 ];
 // Длиннее модель переводит минутами, а в num_ctx может и не влезть. Лимит передаём всплывашке:

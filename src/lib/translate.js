@@ -111,9 +111,10 @@ export async function createContext(settings, signal, prompts = settingsPrompts(
 // может бросить, чтобы прервать перевод между запросами, не теряя ответ идущего.
 // Если перед повтором хук бросил, а Ollama недоступна, наружу идёт OLLAMA_DOWN: о ней важнее
 // узнать сразу, чем уступить слот и перекладывать обречённые тексты.
-async function chatWithRetry(body, ctx) {
+// onContent — см. chat в ollama.js; после повтора ответ в нём начинается заново.
+export async function chatWithRetry(body, ctx, { onContent } = {}) {
   const res = await withRetry(
-    () => chat(ctx.baseUrl, body, { signal: ctx.signal }),
+    () => chat(ctx.baseUrl, body, { signal: ctx.signal, onContent }),
     ctx.signal,
     ctx.beforeRequest,
   );

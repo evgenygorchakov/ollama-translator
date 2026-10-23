@@ -179,6 +179,7 @@ function watchStall(baseUrl, onStall) {
 }
 
 // POST /api/chat со stream: true. Копит ответ целиком; стрим нужен, чтобы соединение не молчало.
+// opts.onContent(content) — необязательный: получает накопленный ответ после каждого куска.
 export async function chat(baseUrl, body, opts = {}) {
   const stall = new AbortController();
   let stallError = null;
@@ -201,7 +202,11 @@ export async function chat(baseUrl, body, opts = {}) {
       throw new OllamaError(ErrorCode.BAD_RESPONSE, "Не удалось разобрать строку стрима Ollama");
     }
     if (chunk.error) throw new OllamaError(ErrorCode.BAD_RESPONSE, chunk.error);
-    content += chunk.message?.content ?? "";
+    const delta = chunk.message?.content ?? "";
+    if (delta) {
+      content += delta;
+      opts.onContent?.(content);
+    }
     if (chunk.done) final = chunk;
   };
 
