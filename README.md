@@ -33,3 +33,8 @@ a panel with a summary of the page's main text in the translation language; «К
 in the selection context menu does the same for the selected text. Switch between a short and a
 detailed summary in the panel. A long page is read part by part, up to 150 000 characters, so it
 takes several requests to the model.
+
+Below the summary you can ask questions about the same text. The model answers only from the
+text and sees the summary and earlier questions, so follow-ups like «а подробнее про второй
+пункт?» work. On a long page each question is looked up part by part: one request per part plus
+one for the answer.

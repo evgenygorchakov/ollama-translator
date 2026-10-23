@@ -9,10 +9,61 @@ const ANSWER_TOKENS = 2048;
 // 4. Китайскому и японскому (меньше 2) не хватит.
 const CHARS_PER_TOKEN = 3;
 
+function answerTokens(numCtx) {
+  return Math.min(ANSWER_TOKENS, numCtx / 4);
+}
+
 // → сколько символов текста влезает в один запрос с этим num_ctx
 export function inputChars(numCtx) {
-  const answer = Math.min(ANSWER_TOKENS, numCtx / 4);
-  return Math.floor((numCtx - PROMPT_TOKENS - answer) * CHARS_PER_TOKEN);
+  return Math.floor((numCtx - PROMPT_TOKENS - answerTokens(numCtx)) * CHARS_PER_TOKEN);
+}
+
+// Вопросу и прошлым вопросам с ответами — половина места под ответ: ответ на вопрос обычно
+// короче подробного краткого содержания. Плюс место, которое не занял текст, — это считает
+// вызывающий.
+export function historyChars(numCtx) {
+  return Math.floor((answerTokens(numCtx) / 2) * CHARS_PER_TOKEN);
+}
+
+// Выписка к вопросу из одной части длинного текста — не длиннее этого (num_predict): половина
+// места под ответ, другую занимает история (historyChars). Выписки всех частей вместе потом
+// сводятся к месту под текст — fitExcerpts.
+export function excerptTokens(numCtx) {
+  return Math.floor(answerTokens(numCtx) / 2);
+}
+
+// Выписки из частей длинного текста — вместе не длиннее max символов. Каждой — поровну от
+// оставшегося места, начиная с коротких: короткая остаётся целиком, а что она не заняла,
+// достаётся длинным. Длинные режем cutText — остаётся начало.
+export function fitExcerpts(excerpts, max) {
+  const out = [...excerpts];
+  const order = excerpts.map((_, i) => i).sort((a, b) => excerpts[a].length - excerpts[b].length);
+  let left = Math.max(0, max);
+  for (const [k, i] of order.entries()) {
+    out[i] = cutText(excerpts[i], Math.floor(left / (order.length - k)));
+    left -= out[i].length;
+  }
+  return out;
+}
+
+// Последние из turns ([{ question, answer }] по порядку), которые вместе влезают в max символов.
+// Последний берём всегда, ответ в нём, если не влезает, — началом: без него не понять вопрос
+// вроде «а подробнее?».
+export function fitTurns(turns, max) {
+  const out = [];
+  let left = max;
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const { question, answer } = turns[i];
+    const size = question.length + answer.length;
+    if (size > left) {
+      const head = out.length ? "" : cutText(answer, Math.max(0, left - question.length));
+      if (head) out.push({ question, answer: head });
+      break;
+    }
+    out.unshift(turns[i]);
+    left -= size;
+  }
+  return out;
 }
 
 // Начало текста не длиннее max: по границе абзаца, если она в последней пятой части, иначе по

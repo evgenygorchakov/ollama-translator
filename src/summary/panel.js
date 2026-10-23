@@ -1,6 +1,7 @@
-// Панель с кратким содержанием страницы или выделенного. Внедряется по кнопке в popup или из
-// контекстного меню, ответ модели получает через порт "summary" по мере генерации. От перевода
-// страницы, выделенного и озвучки не зависит. Текст модели — только textContent.
+// Панель с кратким содержанием страницы или выделенного и вопросами по тексту. Внедряется по
+// кнопке в popup или из контекстного меню, ответ модели получает через порт "summary" по мере
+// генерации: у краткого содержания и у каждого вопроса свой порт. От перевода страницы,
+// выделенного и озвучки не зависит. Текст модели — только textContent.
 (() => {
   const ns = (window.__ollamaTranslator ??= {});
   ns.summary?.dispose(); // осиротевший экземпляр после перезагрузки расширения
@@ -16,6 +17,7 @@
   const DEFAULT_LENGTH = "short";
   // Короче — сокращать нечего.
   const MIN_CHARS = 200;
+  const MAX_QUESTION = 1000;
   const MARGIN = 8;
 
   // Надписи для страницы и выделенного — по source.kind из open().
@@ -27,6 +29,8 @@
       partly: "Учтено начало страницы",
       whole: "Учтён весь текст страницы",
       tooShort: "На странице почти нет текста — сокращать нечего",
+      ask: "Спросить о странице…",
+      search: "Страница длинная — ищу ответ по частям",
     },
     selection: {
       title: "Кратко о выделенном",
@@ -35,6 +39,8 @@
       partly: "Учтено начало выделенного",
       whole: "Учтён весь выделенный текст",
       tooShort: "Выделено слишком мало — тут почти нечего сокращать",
+      ask: "Спросить о выделенном…",
+      search: "Выделено много — ищу ответ по частям",
     },
   };
 
@@ -75,6 +81,7 @@
     button:hover { background: var(--btn-hover); color: var(--fg); }
     button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
     button[hidden] { display: none; }
+    button:disabled { opacity: 0.5; cursor: default; }
     .close { font-size: 16px; line-height: 1; }
     .lengths {
       display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
@@ -90,7 +97,30 @@
     .body h3:first-child { margin-top: 0; }
     .body ul { margin: 0 0 8px; padding-left: 20px; }
     .body li { margin: 2px 0; }
-    .body > :last-child { margin-bottom: 0; }
+    .summary > :last-child, .answer > :last-child { margin-bottom: 0; }
+    .turn { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+    .question {
+      margin-bottom: 6px; padding: 4px 8px; border-radius: 6px;
+      background: var(--btn-hover); font-weight: 600; white-space: pre-wrap;
+    }
+    .note { margin-top: 6px; color: var(--muted); font-size: 12px; }
+    .note[hidden] { display: none; }
+    .ask {
+      display: flex; align-items: flex-end; gap: 6px;
+      padding: 8px 12px; border-top: 1px solid var(--border);
+    }
+    .ask[hidden] { display: none; }
+    textarea {
+      flex: 1; box-sizing: border-box; min-width: 0; max-height: 120px; margin: 0;
+      padding: 4px 8px; resize: none; overflow-y: auto;
+      background: var(--bg); color: var(--fg);
+      border: 1px solid var(--border); border-radius: 6px; font: inherit;
+    }
+    textarea::placeholder { color: var(--muted); opacity: 1; }
+    textarea:focus { outline: none; border-color: var(--accent); }
+    .send { padding: 5px 10px; background: var(--accent); color: var(--accent-fg); }
+    .send:hover { background: var(--accent); color: var(--accent-fg); }
+    .send:focus-visible { outline-offset: 1px; }
     .foot {
       padding: 6px 12px; border-top: 1px solid var(--border);
       color: var(--muted); font-size: 12px;
@@ -99,12 +129,17 @@
     .status { color: var(--muted); }
     .error { color: var(--error); }
     .retry { margin-top: 6px; color: var(--accent); padding: 2px 0; }
+    .retry:disabled { background: none; color: var(--accent); }
   `;
 
-  // { host, panel, body, foot, copyBtn, lengthBtns, words, source: { title, text }, length,
-  //   results: { [length]: { text, cut, sent } }, sent: { used, total } | null, conn }
+  // { host, panel, body, summaryBox, thread, foot, ask, askInput, askBtn, copyBtn, lengthBtns,
+  //   words, source: { title, text }, length, results: { [length]: { text, cut, sent } },
+  //   sent: { used, total } | null, conn, turns, askConn }
   // words — надписи из WORDING.
   // sent — сколько текста ушло модели в последнем запросе (сообщение source).
+  // turns — вопросы по порядку: { question, answer, cut, sent, missed, node, answerBox, note };
+  // answer — null, пока готового ответа нет (идёт, ошибка, остановлено); missed — { count, parts }
+  // из result (см. summary/background.js) или null. askConn — порт идущего вопроса.
   let current = null;
 
   function el(tag, className, text) {
@@ -136,7 +171,8 @@
     foot.hidden = !foot.childNodes.length;
   }
 
-  function renderText(text) {
+  // ответ модели → абзацы, пункты, подзаголовки
+  function textNodes(text) {
     const nodes = [];
     let list = null;
     for (const block of format.blocks(text)) {
@@ -148,19 +184,31 @@
         nodes.push(el(block.kind === "h" ? "h3" : "p", null, block.text));
       }
     }
-    current.body.replaceChildren(...nodes);
+    return nodes;
+  }
+
+  function renderText(text) {
+    current.summaryBox.replaceChildren(...textNodes(text));
+  }
+
+  // Сообщение вместо текста; onRetry — для кнопки «Повторить», без него кнопки нет.
+  function messageNodes(className, text, onRetry) {
+    const nodes = [el("div", className, text)];
+    if (onRetry) {
+      const retry = el("button", "retry", "Повторить");
+      retry.addEventListener("click", onRetry);
+      nodes.push(retry);
+    }
+    return nodes;
   }
 
   // canRetry: false — повтор не поможет (текста нет, расширение перезагружено)
   function showMessage(className, text, canRetry) {
-    const { body, copyBtn } = current;
-    body.replaceChildren(el("div", className, text));
+    const { summaryBox, copyBtn } = current;
+    summaryBox.replaceChildren(
+      ...messageNodes(className, text, canRetry && (() => request(current.length))),
+    );
     copyBtn.hidden = true;
-    if (canRetry) {
-      const retry = el("button", "retry", "Повторить");
-      retry.addEventListener("click", () => request(current.length));
-      body.append(retry);
-    }
   }
 
   function showError(message, canRetry = true) {
@@ -290,9 +338,183 @@
     }, 1500);
   }
 
+  // ---------- Вопросы ----------
+
+  // Пока идёт ответ, другой вопрос не отправить — ни новый, ни повтор.
+  function syncAsk() {
+    const busy = Boolean(current.askConn);
+    current.askBtn.disabled = busy;
+    for (const btn of current.thread.querySelectorAll(".retry")) btn.disabled = busy;
+  }
+
+  function stopAsk() {
+    current.askConn?.close();
+    current.askConn = null;
+    syncAsk();
+  }
+
+  // Ответ дописывается — прокрутка идёт за ним, если читатель и так был внизу.
+  function keepBottom(update) {
+    const { body } = current;
+    const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 24;
+    update();
+    if (atBottom) body.scrollTop = body.scrollHeight;
+  }
+
+  // notes — строки под ответом
+  function showAnswer(turn, nodes, notes = []) {
+    keepBottom(() => {
+      turn.answerBox.replaceChildren(...nodes);
+      turn.note.replaceChildren(...notes.map((line) => el("div", null, line)));
+      turn.note.hidden = !notes.length;
+    });
+  }
+
+  // canRetry — как у showMessage
+  function showAnswerMessage(turn, className, text, canRetry) {
+    showAnswer(turn, messageNodes(className, text, canRetry && (() => sendQuestion(turn))));
+  }
+
+  function showAnswerError(turn, message, canRetry = true) {
+    showAnswerMessage(turn, "error", `Не получилось: ${message}`, canRetry);
+  }
+
+  // Под готовым ответом: сколько текста учтено, обрезан ли ответ.
+  function answerNotes({ sent, cut, missed }) {
+    const notes = [];
+    if (sent && sent.used < sent.total) {
+      notes.push(`${current.words.partly}: ${percent(sent.used, sent.total)}% текста`);
+    }
+    if (missed) {
+      notes.push(
+        `Не учтено частей текста: ${missed.count} из ${missed.parts} — модель упёрлась в предел ` +
+          "длины ответа, ничего из них не выписав",
+      );
+    }
+    if (cut) notes.push("Ответ обрезан: не хватило контекста модели (num_ctx в настройках)");
+    return notes;
+  }
+
+  // Готовые вопросы и ответы до turn — история для модели.
+  function historyBefore(turn) {
+    const { turns } = current;
+    return turns
+      .slice(0, turns.indexOf(turn))
+      .filter((t) => t.answer !== null)
+      .map(({ question, answer }) => ({ question, answer }));
+  }
+
+  // Вопрос — модели; повтор после ошибки — тоже сюда.
+  function sendQuestion(turn) {
+    const state = current;
+    if (state.askConn) return; // идёт ответ на другой вопрос
+    Object.assign(turn, { answer: null, cut: false, sent: null, missed: null });
+    showAnswerMessage(turn, "status", "Думаю…", false);
+    // после stopAsk() порт ничего не вызывает — ответ всегда к этому вопросу
+    try {
+      state.askConn = ns.connectPort(PORT_NAME, {
+        onMessage: (msg) => onAnswerMessage(turn, msg),
+        onDisconnect: () => {
+          state.askConn = null;
+          syncAsk();
+          showAnswerError(turn, "соединение с расширением прервалось");
+        },
+      });
+    } catch {
+      showAnswerError(turn, "расширение перезагружено, обновите страницу", false);
+      return;
+    }
+    syncAsk();
+    const { title, text } = state.source;
+    state.askConn.post({
+      type: "ask",
+      text,
+      title,
+      question: turn.question,
+      summary: state.results[state.length]?.text ?? "",
+      history: historyBefore(turn),
+    });
+  }
+
+  // длинный текст: поиск ответа по частям, потом ответ — см. summary/background.js
+  function searchProgressText({ step, part, parts }) {
+    if (step === "search") return `${current.words.search}: ${part} из ${parts}…`;
+    return "Пишу ответ…";
+  }
+
+  function onAnswerMessage(turn, msg) {
+    switch (msg?.type) {
+      case "source":
+        turn.sent = { used: msg.used, total: msg.total };
+        break;
+      case "progress":
+        showAnswerMessage(turn, "status", searchProgressText(msg), false);
+        break;
+      case "partial":
+        showAnswer(turn, textNodes(msg.text));
+        break;
+      case "result":
+        stopAsk();
+        Object.assign(turn, {
+          answer: msg.text,
+          cut: Boolean(msg.cut),
+          missed: msg.missed ? { count: msg.missed, parts: msg.parts } : null,
+        });
+        showAnswer(turn, textNodes(msg.text), answerNotes(turn));
+        break;
+      case "stopped":
+        stopAsk();
+        showAnswerMessage(turn, "status", "Остановлено", true);
+        break;
+      case "error":
+        stopAsk();
+        showAnswerError(turn, msg.message ?? "неизвестная ошибка");
+        break;
+    }
+  }
+
+  function buildTurn(question) {
+    const node = el("div", "turn");
+    const answerBox = el("div", "answer");
+    const note = el("div", "note");
+    note.hidden = true;
+    node.append(el("div", "question", question), answerBox, note);
+    return { node, answerBox, note };
+  }
+
+  // Пока идёт ответ, следующий вопрос можно набирать, но не отправить.
+  function askQuestion() {
+    const { askInput, askConn, turns, thread, body } = current;
+    const question = askInput.value.trim();
+    if (!question || askConn) return;
+    askInput.value = "";
+    fitInput();
+    const turn = {
+      question,
+      answer: null,
+      cut: false,
+      sent: null,
+      missed: null,
+      ...buildTurn(question),
+    };
+    turns.push(turn);
+    thread.append(turn.node);
+    sendQuestion(turn);
+    body.scrollTop = body.scrollHeight; // к новому вопросу
+  }
+
+  // Поле растёт по тексту до max-height из STYLE, дальше прокручивается.
+  function fitInput() {
+    const { askInput } = current;
+    askInput.style.height = "auto";
+    const borders = askInput.offsetHeight - askInput.clientHeight;
+    askInput.style.height = `${askInput.scrollHeight + borders}px`;
+  }
+
   function close() {
     if (!current) return;
     stopPort();
+    stopAsk();
     current.host.remove();
     current = null;
   }
@@ -331,18 +553,52 @@
     bar.append(lengths, el("span", "spacer"), copyBtn);
 
     const body = el("div", "body");
+    const summaryBox = el("div", "summary");
+    const thread = el("div");
+    body.append(summaryBox, thread);
     const foot = el("div", "foot");
     foot.hidden = true;
 
-    panel.append(head, bar, body, foot);
-    shadow.append(panel);
-    // Esc — только когда фокус в панели: на странице Esc может быть нужен ей самой
-    host.addEventListener("keydown", (e) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      close();
+    const ask = el("div", "ask");
+    const askInput = el("textarea");
+    askInput.rows = 1;
+    askInput.maxLength = MAX_QUESTION;
+    askInput.placeholder = words.ask;
+    askInput.setAttribute("aria-label", words.ask);
+    askInput.addEventListener("input", () => fitInput());
+    askInput.addEventListener("keydown", (e) => {
+      if (e.isComposing) return;
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        askQuestion();
+      } else if (e.key === "Escape" && askInput.value) {
+        // Esc в поле с текстом стирает набранное, а панель с перепиской закроет следующий Esc
+        e.stopPropagation();
+        askInput.value = "";
+        fitInput();
+      }
     });
-    return { host, panel, body, foot, copyBtn, lengthBtns };
+    const askBtn = el("button", "send", "Спросить");
+    // фокус — в поле до отправки: кнопку на время ответа отключаем, и фокус с неё ушёл бы на
+    // страницу
+    askBtn.addEventListener("click", () => {
+      askInput.focus();
+      askQuestion();
+    });
+    ask.append(askInput, askBtn);
+
+    panel.append(head, bar, body, foot, ask);
+    shadow.append(panel);
+    // Клавиши из панели на страницу не пускаем: пока пишут вопрос, срабатывали бы горячие
+    // клавиши сайта. Esc закрывает панель — только когда фокус в ней: на странице Esc может быть
+    // нужен ей самой.
+    for (const type of ["keydown", "keyup", "keypress"]) {
+      host.addEventListener(type, (e) => e.stopPropagation());
+    }
+    host.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !e.isComposing) close();
+    });
+    return { host, panel, body, summaryBox, thread, foot, ask, askInput, askBtn, copyBtn, lengthBtns };
   }
 
   // source — { kind: "page" } или { kind: "selection", text } из summary/background.js: текст
@@ -355,10 +611,20 @@
     const text = selection
       ? { title: document.title.trim(), text: extract.normalize(String(source.text ?? "")) }
       : extract.page();
-    current = { ...build(words), words, source: text, results: {}, sent: null, conn: null };
+    current = {
+      ...build(words),
+      words,
+      source: text,
+      results: {},
+      sent: null,
+      conn: null,
+      turns: [],
+      askConn: null,
+    };
     setLength(DEFAULT_LENGTH);
     document.documentElement.append(current.host);
     if (current.source.text.length < MIN_CHARS) {
+      current.ask.hidden = true;
       showMessage("status", words.tooShort, false);
       return;
     }

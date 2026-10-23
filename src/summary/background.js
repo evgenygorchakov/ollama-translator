@@ -3,12 +3,17 @@
 // (panel.js) и порт "summary", по которому она просит краткое содержание. От перевода страницы,
 // выделенного и озвучки не зависит.
 //
-// Один порт — один запрос. Панель → сюда: summarize { text, title, length }; ping.
+// Один порт — один запрос. Панель → сюда: summarize { text, title, length } — краткое
+// содержание; ask { text, title, question, summary, history } — вопрос по тексту, summary —
+// краткое содержание из панели или "", history — прошлые вопросы и ответы
+// [{ question, answer }] по порядку; ping.
 // Отсюда → панели: source { used, total } — сколько символов текста ушло модели;
 // progress { step: "part", part, parts } | { step: "merge" } | { step: "final" } — длинный текст:
-// заметки по частям, сведение заметок, итог; partial { text } — ответ по мере генерации;
-// result { text, cut } — готово, cut — ответ упёрся в num_ctx; error { code, message };
-// stopped — «Стоп».
+// заметки по частям, сведение заметок, итог; у вопроса — { step: "search", part, parts } |
+// { step: "final" }: поиск по частям, ответ; partial { text } — ответ по мере генерации;
+// result { text, cut, missed?, parts? } — готово, cut — ответ упёрся в num_ctx; missed — у
+// вопроса по длинному тексту: в скольких из parts частей модель упёрлась в предел, ничего не
+// выписав; error { code, message }; stopped — «Стоп».
 // Панель закрыли или сменили длину — порт отключился — запрос к Ollama отменён.
 
 import { ErrorCode, OllamaError } from "../lib/ollama.js";
@@ -21,11 +26,23 @@ import { ensureMenu } from "../lib/menus.js";
 import { onStop, registerQueue } from "../lib/stop.js";
 import {
   SUMMARY_LENGTHS,
+  SUMMARY_QUESTION,
+  buildAnswerRequest,
   buildMergeRequest,
   buildNotesRequest,
+  buildSearchRequest,
   buildSummaryRequest,
+  excerptOf,
 } from "./lib/prompt.js";
-import { cutText, inputChars, splitText } from "./lib/chunks.js";
+import {
+  cutText,
+  excerptTokens,
+  fitExcerpts,
+  fitTurns,
+  historyChars,
+  inputChars,
+  splitText,
+} from "./lib/chunks.js";
 
 const PORT_NAME = "summary";
 const PAGE_MENU_ID = "summarize-page";
@@ -154,8 +171,8 @@ function partialSender(port) {
 
 // ---------- Запросы к модели ----------
 
-// job — запрос одной панели: { port, controller, queued }; queued — сколько запросов к модели
-// у него ещё впереди, для «■ Стоп» в popup.
+// job — запрос панели, краткое содержание или вопрос: { port, controller, queued }; queued —
+// сколько запросов к модели у него ещё впереди, для «■ Стоп» в popup.
 
 // Модели с thinking иногда пишут рассуждение и при think: false — его вырезаем, а пока оно не
 // закрыто (ответ ещё идёт), не показываем и начатое.
@@ -255,23 +272,11 @@ async function notesOf(job, text, { title, lang, budget, model }) {
   return entry.merged;
 }
 
-// → { text, cut }
-async function summarize(job, { text, title, length }) {
-  const { numCtx, targetLang: lang, model } = await getSettings();
-  const budget = inputChars(numCtx);
-  const used = cutText(text, MAX_CHARS);
-  safePost(job.port, { type: "source", used: used.length, total: text.length });
-  const fromNotes = used.length > budget;
-  const source = fromNotes ? await notesOf(job, used, { title, lang, budget, model }) : used;
-  job.queued = 0;
-  if (fromNotes) safePost(job.port, { type: "progress", step: "final" });
+// Последний запрос — тот, чей ответ панель показывает по мере генерации. → { text, cut }
+async function complete(job, build) {
   const partial = partialSender(job.port);
   try {
-    const { content, doneReason } = await ask(
-      job,
-      (ctx) => buildSummaryRequest({ text: source, title, length, lang, fromNotes }, ctx),
-      { onContent: partial.push },
-    );
+    const { content, doneReason } = await ask(job, build, { onContent: partial.push });
     const cut = doneReason === "length";
     // пусто и обрезано — модель упёрлась в num_ctx, ещё рассуждая
     if (!content.trim()) {
@@ -286,12 +291,90 @@ async function summarize(job, { text, title, length }) {
   }
 }
 
+// → { text, cut }
+async function summarize(job, { text, title, length }) {
+  const { numCtx, targetLang: lang, model } = await getSettings();
+  const budget = inputChars(numCtx);
+  const used = cutText(text, MAX_CHARS);
+  safePost(job.port, { type: "source", used: used.length, total: text.length });
+  const fromNotes = used.length > budget;
+  const source = fromNotes ? await notesOf(job, used, { title, lang, budget, model }) : used;
+  job.queued = 0;
+  if (fromNotes) safePost(job.port, { type: "progress", step: "final" });
+  return complete(job, (ctx) =>
+    buildSummaryRequest({ text: source, title, length, lang, fromNotes }, ctx),
+  );
+}
+
+// Длинный текст: каждая часть выписывает, что относится к вопросу. Прошлые вопросы и ответы
+// past — тоже, чтобы понять вопрос вроде «а подробнее?»; места под них — только своё, часть
+// занимает всё остальное. Выписки кэшировать незачем: у каждого вопроса свои. Вместе с
+// заголовками частей выписки сводятся к месту под текст — fitExcerpts.
+// → { text, missed, parts }: text — выписки одним текстом, "" — ни в одной части ничего не
+// нашлось; missed — в скольких частях модель упёрлась в предел, ничего не выписав (видимо,
+// рассуждала): что в них, неизвестно.
+async function search(job, text, { title, question, past, numCtx }) {
+  const budget = inputChars(numCtx);
+  const parts = splitText(text, budget);
+  const maxTokens = excerptTokens(numCtx);
+  const turns = fitTurns(past, historyChars(numCtx) - question.length);
+  const found = []; // { head, excerpt }
+  let missed = 0;
+  for (const [i, part] of parts.entries()) {
+    job.queued = parts.length - i; // оставшиеся части и ответ
+    safePost(job.port, { type: "progress", step: "search", part: i + 1, parts: parts.length });
+    const { content, doneReason } = await ask(job, (ctx) =>
+      buildSearchRequest(
+        { text: part, title, part: i + 1, parts: parts.length, question, turns, maxTokens },
+        ctx,
+      ),
+    );
+    const excerpt = excerptOf(content);
+    if (excerpt) found.push({ head: `Part ${i + 1} of ${parts.length}:\n`, excerpt });
+    else if (doneReason === "length" && !content.trim()) missed++;
+  }
+  const heads = found.reduce((sum, { head }) => sum + head.length + 2, 0); // и "\n\n" между
+  const excerpts = fitExcerpts(found.map((f) => f.excerpt), budget - heads);
+  const joined = found.map(({ head }, k) => head + excerpts[k]).join("\n\n");
+  return { text: joined, missed, parts: parts.length };
+}
+
+// Вопрос по тексту. Краткое содержание — первым ответом в истории: вопросы бывают про него.
+// → { text, cut }, у длинного текста ещё missed и parts, если в каких-то частях модель ничего не
+// успела выписать (см. search)
+async function answer(job, { text, title, question, summary, history }) {
+  const { numCtx, targetLang: lang } = await getSettings();
+  const budget = inputChars(numCtx);
+  const used = cutText(text, MAX_CHARS);
+  safePost(job.port, { type: "source", used: used.length, total: text.length });
+  const past = summary ? [{ question: SUMMARY_QUESTION, answer: summary }, ...history] : history;
+  const fromExcerpts = used.length > budget;
+  const found = fromExcerpts ? await search(job, used, { title, question, past, numCtx }) : null;
+  // выписок нет, но не потому, что части ответили NONE, — «на странице этого нет» было бы неправдой
+  if (found && !found.text && found.missed) {
+    throw new OllamaError(
+      ErrorCode.BAD_RESPONSE,
+      "модель не успела ничего выписать из частей текста: упиралась в предел длины ответа, " +
+        "видимо, рассуждая",
+    );
+  }
+  const source = found ? found.text : used;
+  job.queued = 0;
+  if (fromExcerpts) safePost(job.port, { type: "progress", step: "final" });
+  const turns = fitTurns(past, historyChars(numCtx) + budget - source.length - question.length);
+  const result = await complete(job, (ctx) =>
+    buildAnswerRequest({ text: source, title, question, turns, lang, fromExcerpts }, ctx),
+  );
+  return found?.missed ? { ...result, missed: found.missed, parts: found.parts } : result;
+}
+
 // ---------- Порты панелей ----------
 
 const jobs = new Map(); // port → job
 
 // «Стоп»: панель покажет «Остановлено» и «Повторить»; ошибку ABORTED она не получит. Готовые
-// заметки остаются в кэше — повтор продолжит с прерванной части.
+// заметки остаются в кэше — повтор продолжит с прерванной части; поиск ответа на вопрос
+// начнётся заново.
 onStop(() => {
   for (const job of jobs.values()) {
     safePost(job.port, { type: "stopped" });
@@ -306,6 +389,29 @@ registerQueue(() => {
   return queued;
 });
 
+const isString = (value) => typeof value === "string";
+const isTurn = (turn) => isString(turn?.question) && isString(turn?.answer);
+
+// Сообщение панели → промис summarize или answer; null — не запрос (ping) или битое.
+function start(job, msg) {
+  if (!isString(msg?.text)) return null;
+  const title = isString(msg.title) ? msg.title : "";
+  if (msg.type === "summarize") {
+    const length = SUMMARY_LENGTHS.includes(msg.length) ? msg.length : SUMMARY_LENGTHS[0];
+    return summarize(job, { text: msg.text, title, length });
+  }
+  if (msg.type === "ask" && isString(msg.question) && msg.question.trim()) {
+    return answer(job, {
+      text: msg.text,
+      title,
+      question: msg.question.trim(),
+      summary: isString(msg.summary) ? msg.summary : "",
+      history: Array.isArray(msg.history) ? msg.history.filter(isTurn) : [],
+    });
+  }
+  return null;
+}
+
 // Пока порт открыт, панель шлёт ping, чтобы service worker не уснул на долгом ответе.
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== PORT_NAME) return;
@@ -316,13 +422,9 @@ chrome.runtime.onConnect.addListener((port) => {
     job.controller.abort();
   });
   port.onMessage.addListener((msg) => {
-    if (msg?.type !== "summarize" || typeof msg.text !== "string") return;
-    const request = {
-      text: msg.text,
-      title: typeof msg.title === "string" ? msg.title : "",
-      length: SUMMARY_LENGTHS.includes(msg.length) ? msg.length : SUMMARY_LENGTHS[0],
-    };
-    summarize(job, request)
+    const work = start(job, msg);
+    if (!work) return;
+    work
       .then(
         (result) => safePost(port, { type: "result", ...result }),
         (e) => {
