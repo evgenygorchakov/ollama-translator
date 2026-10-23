@@ -193,10 +193,21 @@
     state.conn.post({ type: "summarize", text, title, length }); // порт мёртв — onDisconnect покажет ошибку
   }
 
+  // длинный текст модель читает по частям — см. summary/background.js
+  function progressText({ step, part, parts }) {
+    if (step === "part") return `Страница длинная — читаю по частям: ${part} из ${parts}…`;
+    if (step === "merge") return "Свожу заметки по частям…";
+    return "Пишу краткое содержание…";
+  }
+
   function onMessage(state, length, msg) {
     switch (msg?.type) {
       case "source":
         state.sent = { used: msg.used, total: msg.total };
+        renderFoot();
+        break;
+      case "progress":
+        showMessage("status", progressText(msg), false);
         renderFoot();
         break;
       case "partial":
