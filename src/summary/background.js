@@ -8,8 +8,10 @@
 // Один порт — один запрос. Панель → сюда: transcript { videoId } — субтитры видео текстом;
 // summarize { text, title, length, kind } — краткое содержание; ask { text, title, kind,
 // question, summary, history } — вопрос по тексту, summary — краткое содержание из панели или "",
-// history — прошлые вопросы и ответы [{ question, answer }] по порядку; ping. kind — "video"
-// (промпты для расшифровки видео) или любое другое — промпты для страницы.
+// history — прошлые вопросы и ответы [{ question, answer }] по порядку; clickbait { text, title,
+// length, summary } — кликбейт ли название видео, summary — готовое краткое содержание длины
+// length; ping. kind — "video" (промпты для расшифровки видео) или любое другое — промпты для
+// страницы.
 // Отсюда → панели: transcript { title, text, kind, lang } — субтитры: kind — "asr"
 // (автоматические) или "manual", lang — их язык; source { used, total } — сколько символов текста
 // ушло модели;
@@ -18,7 +20,8 @@
 // { step: "final" }: поиск по частям, ответ; partial { text } — ответ по мере генерации;
 // result { text, cut, missed?, parts? } — готово, cut — ответ упёрся в num_ctx; missed — у
 // вопроса по длинному тексту: в скольких из parts частей модель упёрлась в предел, ничего не
-// выписав; error { code, message }, у субтитров code — из pageCaptions
+// выписав; у clickbait — result { clickbait, reason }; error { code, message }, у субтитров
+// code — из pageCaptions
 // (lib/youtube-captions.js); stopped — «Стоп».
 // Панель закрыли или сменили длину — порт отключился — запрос к Ollama отменён.
 
@@ -34,10 +37,12 @@ import { pageCaptions, parseJson3 } from "../lib/youtube-captions.js";
 import {
   SUMMARY_LENGTHS,
   buildAnswerRequest,
+  buildClickbaitRequest,
   buildMergeRequest,
   buildNotesRequest,
   buildSearchRequest,
   buildSummaryRequest,
+  clickbaitOf,
   excerptOf,
   summaryQuestion,
 } from "./lib/prompt.js";
@@ -445,6 +450,32 @@ async function answer(job, { text, title, kind, question, summary, history }) {
   return found?.missed ? { ...result, missed: found.missed, parts: found.parts } : result;
 }
 
+// Кликбейт ли название видео: вопрос вдогонку к краткому содержанию длины length — тот же текст,
+// те же заметки по частям из кэша, см. buildClickbaitRequest. Видео длиннее MAX_CHARS не
+// проверяем: развязка может быть в непрочитанном конце. → { clickbait, reason }, reason — что
+// обещает название и что в видео.
+async function clickbait(job, { text, title, length, summary }) {
+  if (text.length > MAX_CHARS) {
+    console.debug(`[ot] кликбейт «${title}»: не проверяю, учтено только начало видео`);
+    return { clickbait: false, reason: "" };
+  }
+  const { numCtx, targetLang: lang, model } = await getSettings();
+  const budget = inputChars(numCtx);
+  const fromNotes = text.length > budget;
+  const source = fromNotes
+    ? await notesOf(job, text, { title, lang, kind: "video", budget, model })
+    : text;
+  job.queued = 0;
+  const { content } = await ask(job, (ctx) =>
+    buildClickbaitRequest({ text: source, title, length, lang, fromNotes, summary }, ctx),
+  );
+  const verdict = clickbaitOf(content);
+  if (!verdict) throw new OllamaError(ErrorCode.BAD_RESPONSE, "модель ответила не по схеме");
+  const reason = [verdict.claim, verdict.delivered].filter(Boolean).join("\n");
+  console.debug(`[ot] кликбейт «${title}»: ${verdict.clickbait ? "да" : "нет"}\n${reason}`);
+  return { clickbait: verdict.clickbait, reason };
+}
+
 // ---------- Порты панелей ----------
 
 const jobs = new Map(); // port → job
@@ -469,14 +500,17 @@ registerQueue(() => {
 const isString = (value) => typeof value === "string";
 const isTurn = (turn) => isString(turn?.question) && isString(turn?.answer);
 
-// Сообщение панели → промис summarize или answer; null — не запрос (ping) или битое.
+// Сообщение панели → промис summarize, answer или clickbait; null — не запрос (ping) или битое.
 function start(job, msg) {
   if (!isString(msg?.text)) return null;
   const title = isString(msg.title) ? msg.title : "";
   const kind = msg.kind === "video" ? "video" : "page";
+  const length = SUMMARY_LENGTHS.includes(msg.length) ? msg.length : SUMMARY_LENGTHS[0];
   if (msg.type === "summarize") {
-    const length = SUMMARY_LENGTHS.includes(msg.length) ? msg.length : SUMMARY_LENGTHS[0];
     return summarize(job, { text: msg.text, title, kind, length });
+  }
+  if (msg.type === "clickbait" && title.trim() && isString(msg.summary) && msg.summary.trim()) {
+    return clickbait(job, { text: msg.text, title, length, summary: msg.summary });
   }
   if (msg.type === "ask" && isString(msg.question) && msg.question.trim()) {
     return answer(job, {

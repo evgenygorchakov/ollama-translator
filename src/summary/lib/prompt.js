@@ -5,7 +5,8 @@
 // сводит заметки (buildMergeRequest), и из заметок пишет итог (buildSummaryRequest, fromNotes).
 // Вопрос по тексту — buildAnswerRequest. Если текст длинный, каждая часть выписывает, что
 // относится к вопросу (buildSearchRequest), а ответ пишется по выпискам (buildAnswerRequest,
-// fromExcerpts).
+// fromExcerpts). Кликбейт ли название видео — buildClickbaitRequest вдогонку к краткому
+// содержанию.
 
 import { languageName } from "../../lib/languages.js";
 import { baseRequest } from "../../lib/prompt.js";
@@ -236,4 +237,68 @@ export function excerptOf(content) {
   const text = content.trim();
   const bare = text.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
   return /^NONE\b/.test(bare) || /^none$/i.test(bare) ? "" : text;
+}
+
+// Ответ — две-три фразы. Предел — на случай, если модель зациклится в JSON (бесконечные
+// пробелы): без него запрос держал бы модель, пока не закроют панель.
+const CLICKBAIT_TOKENS = 512;
+
+// Поля — в том порядке, в каком модели их писать: сначала разобраться, потом решать.
+const CLICKBAIT_SCHEMA = {
+  type: "object",
+  properties: {
+    claim: { type: "string" },
+    delivered: { type: "string" },
+    is_clickbait: { type: "boolean" },
+  },
+  required: ["claim", "delivered", "is_clickbait"],
+};
+
+// Броское название, которое лишь немного преувеличивает, — не кликбейт: иначе плашка была бы
+// почти у каждого видео.
+function clickbaitQuestion(name) {
+  return (
+    "Now a different task: judge whether the title of this video is clickbait. Clickbait means " +
+    "the title promises something the video does not deliver — a fact, answer, event, result " +
+    "or reveal that never comes — or misleads about what the video is: what the title states " +
+    "did not happen or is not in the video, even if the video has something smaller or " +
+    "related. A catchy, emotional or capitalized title, or one that only makes the video sound " +
+    "somewhat bigger than it is, is not clickbait when the video does deliver what it " +
+    "promises. Judge only from the text above, not from what you know about the topic. Reply " +
+    "with JSON: claim — what the title promises, in one sentence; delivered — whether and how " +
+    "the video delivers it, in one or two sentences; is_clickbait — true or false. Write claim " +
+    `and delivered in ${name}.`
+  );
+}
+
+// Кликбейт ли название видео — продолжение запроса краткого содержания (buildSummaryRequest с
+// теми же параметрами): начало запроса то же, и Ollama не разбирает текст заново. summary —
+// краткое содержание, которое модель на него написала.
+export function buildClickbaitRequest({ text, title, length, lang, fromNotes, summary }, ctx) {
+  const req = buildSummaryRequest({ text, title, length, lang, kind: "video", fromNotes }, ctx);
+  return {
+    ...req,
+    format: CLICKBAIT_SCHEMA,
+    options: { ...req.options, num_predict: CLICKBAIT_TOKENS },
+    messages: [
+      ...req.messages,
+      { role: "assistant", content: summary },
+      { role: "user", content: clickbaitQuestion(languageName(lang)) },
+    ],
+  };
+}
+
+// Ответ на buildClickbaitRequest → { clickbait, claim, delivered }; null — не JSON или вердикта
+// нет.
+export function clickbaitOf(content) {
+  const text = content.trim();
+  let data;
+  try {
+    data = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
+  } catch {
+    return null;
+  }
+  if (typeof data?.is_clickbait !== "boolean") return null;
+  const str = (value) => (typeof value === "string" ? value.trim() : "");
+  return { clickbait: data.is_clickbait, claim: str(data.claim), delivered: str(data.delivered) };
 }

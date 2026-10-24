@@ -100,6 +100,10 @@
     button[hidden] { display: none; }
     button:disabled { opacity: 0.5; cursor: default; }
     .close { font-size: 16px; line-height: 1; }
+    .badge {
+      margin-left: 8px; padding: 1px 6px; border-radius: 4px;
+      background: #ffd33d; color: #1f2328; font-size: 12px; cursor: help;
+    }
     .lengths {
       display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
     }
@@ -149,10 +153,10 @@
     .retry:disabled { background: none; color: var(--accent); }
   `;
 
-  // { host, panel, body, summaryBox, thread, foot, ask, askInput, askBtn, copyBtn, lengthBtns,
-  //   kind, words, videoId, source: { title, text } | null, captions: { kind, lang } | null,
-  //   length, results: { [length]: { text, cut, sent } }, sent: { used, total } | null, conn,
-  //   turns, askConn }
+  // { host, panel, heading, body, summaryBox, thread, foot, ask, askInput, askBtn, copyBtn,
+  //   lengthBtns, kind, words, videoId, source: { title, text } | null,
+  //   captions: { kind, lang } | null, length, results: { [length]: { text, cut, sent } },
+  //   sent: { used, total } | null, conn, turns, askConn, checked, checkConn }
   // kind и words — source.kind из open() и надписи для него из WORDING. source — текст для модели;
   // у видео null, пока субтитры не загружены. captions — какие субтитры взяты.
   // conn — порт идущего запроса: субтитров или краткого содержания.
@@ -160,6 +164,7 @@
   // turns — вопросы по порядку: { question, answer, cut, sent, missed, node, answerBox, note };
   // answer — null, пока готового ответа нет (идёт, ошибка, остановлено); missed — { count, parts }
   // из result (см. summary/background.js) или null. askConn — порт идущего вопроса.
+  // checked — название видео на кликбейт проверено, checkConn — порт идущей проверки.
   let current = null;
 
   function el(tag, className, text) {
@@ -365,6 +370,7 @@
         stopPort();
         state.results[length] = { text: msg.text, cut: Boolean(msg.cut), sent: state.sent };
         showResult(state.results[length]);
+        checkTitle(length);
         break;
       case "stopped":
         stopPort();
@@ -416,6 +422,61 @@
     setTimeout(() => {
       if (copyBtn.isConnected) copyBtn.textContent = "Копировать";
     }, 1500);
+  }
+
+  // ---------- Кликбейт ----------
+
+  // Название видео — на кликбейт, после готового краткого содержания длины length: модель
+  // спрашивают вдогонку к нему. Один раз на панель; не получилось — плашки нет, проверка
+  // повторится после следующего готового краткого содержания. После обрезанного (упёрлось в
+  // num_ctx) не проверяем: вопрос вдогонку не влезет, и Ollama выкинет из запроса сообщение с
+  // названием и текстом. Название из одних пробелов фон не проверяет и не отвечает — порт висел
+  // бы до закрытия панели.
+  function checkTitle(length) {
+    const state = current;
+    const result = state.results[length];
+    if (state.kind !== "video" || state.checked || state.checkConn || result.cut) return;
+    if (!state.source.title.trim()) return;
+    try {
+      state.checkConn = ns.connectPort(PORT_NAME, {
+        onMessage: (msg) => onCheck(msg),
+        onDisconnect: () => {
+          state.checkConn = null;
+          console.warn("[ot] не удалось проверить название видео: соединение прервалось");
+        },
+      });
+    } catch {
+      return; // расширение перезагружено
+    }
+    const { title, text } = state.source;
+    state.checkConn.post({ type: "clickbait", text, title, length, summary: result.text });
+  }
+
+  function stopCheck() {
+    current.checkConn?.close();
+    current.checkConn = null;
+  }
+
+  // Причина — что обещает название и что в видео — в подсказке у плашки.
+  function onCheck(msg) {
+    switch (msg?.type) {
+      case "result":
+        stopCheck();
+        current.checked = true;
+        if (msg.clickbait) {
+          const badge = el("span", "badge", "Кликбейт!");
+          if (msg.reason) badge.title = String(msg.reason);
+          current.heading.append(badge);
+        }
+        break;
+      case "stopped":
+        stopCheck();
+        break;
+      case "error":
+        stopCheck();
+        console.warn("[ot] не удалось проверить название видео:", msg.message);
+        break;
+    }
   }
 
   // ---------- Вопросы ----------
@@ -596,6 +657,7 @@
     if (!current) return;
     stopPort();
     stopAsk();
+    stopCheck();
     current.host.remove();
     current = null;
   }
@@ -613,10 +675,11 @@
     panel.setAttribute("aria-label", words.title);
 
     const head = el("div", "head");
+    const heading = el("span", "title", words.title);
     const closeBtn = el("button", "close", "×");
     closeBtn.title = "Закрыть (Esc)";
     closeBtn.addEventListener("click", close);
-    head.append(el("span", "title", words.title), closeBtn);
+    head.append(heading, closeBtn);
 
     const bar = el("div", "bar");
     const lengths = el("div", "lengths");
@@ -679,7 +742,20 @@
     host.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !e.isComposing) close();
     });
-    return { host, panel, body, summaryBox, thread, foot, ask, askInput, askBtn, copyBtn, lengthBtns };
+    return {
+      host,
+      panel,
+      heading,
+      body,
+      summaryBox,
+      thread,
+      foot,
+      ask,
+      askInput,
+      askBtn,
+      copyBtn,
+      lengthBtns,
+    };
   }
 
   // Текст для модели: страницы — из документа, выделенного — из source; у видео — null, субтитры
@@ -711,6 +787,8 @@
       conn: null,
       turns: [],
       askConn: null,
+      checked: false,
+      checkConn: null,
     };
     setLength(DEFAULT_LENGTH);
     document.documentElement.append(current.host);
