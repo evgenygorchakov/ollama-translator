@@ -1,7 +1,8 @@
-// Панель с кратким содержанием страницы или выделенного и вопросами по тексту. Внедряется по
-// кнопке в popup или из контекстного меню, ответ модели получает через порт "summary" по мере
-// генерации: у краткого содержания и у каждого вопроса свой порт. От перевода страницы,
-// выделенного и озвучки не зависит. Текст модели — только textContent.
+// Панель с кратким содержанием страницы, выделенного или видео YouTube и вопросами по тексту.
+// Внедряется по кнопке в popup или из контекстного меню, ответ модели получает через порт
+// "summary" по мере генерации: у краткого содержания и у каждого вопроса свой порт. Текст видео —
+// его субтитры, их панель просит по тому же порту. От перевода страницы, выделенного и озвучки не
+// зависит. Текст модели — только textContent.
 (() => {
   const ns = (window.__ollamaTranslator ??= {});
   ns.summary?.dispose(); // осиротевший экземпляр после перезагрузки расширения
@@ -20,7 +21,7 @@
   const MAX_QUESTION = 1000;
   const MARGIN = 8;
 
-  // Надписи для страницы и выделенного — по source.kind из open().
+  // Надписи по source.kind из open(). loading, noCaptions и live — только у видео.
   const WORDING = {
     page: {
       title: "Краткое содержание",
@@ -42,7 +43,23 @@
       ask: "Спросить о выделенном…",
       search: "Выделено много — ищу ответ по частям",
     },
+    video: {
+      title: "Краткое содержание видео",
+      loading: "Загружаю субтитры…",
+      reading: "Читаю субтитры…",
+      parts: "Видео длинное — читаю по частям",
+      partly: "Учтено начало видео",
+      whole: "Учтены все субтитры",
+      tooShort: "В субтитрах почти нет речи — сокращать нечего",
+      noCaptions: "У видео нет субтитров — сокращать нечего",
+      live: "Трансляции не поддерживаются",
+      ask: "Спросить о видео…",
+      search: "Видео длинное — ищу ответ по частям",
+    },
   };
+  // Ошибки субтитров (см. summary/background.js), после которых повтор не поможет: код → надпись
+  // из WORDING.
+  const NO_TEXT = { NO_CAPTIONS: "noCaptions", LIVE: "live" };
 
   const STYLE = `
     :host { all: initial; }
@@ -133,9 +150,12 @@
   `;
 
   // { host, panel, body, summaryBox, thread, foot, ask, askInput, askBtn, copyBtn, lengthBtns,
-  //   words, source: { title, text }, length, results: { [length]: { text, cut, sent } },
-  //   sent: { used, total } | null, conn, turns, askConn }
-  // words — надписи из WORDING.
+  //   kind, words, videoId, source: { title, text } | null, captions: { kind, lang } | null,
+  //   length, results: { [length]: { text, cut, sent } }, sent: { used, total } | null, conn,
+  //   turns, askConn }
+  // kind и words — source.kind из open() и надписи для него из WORDING. source — текст для модели;
+  // у видео null, пока субтитры не загружены. captions — какие субтитры взяты.
+  // conn — порт идущего запроса: субтитров или краткого содержания.
   // sent — сколько текста ушло модели в последнем запросе (сообщение source).
   // turns — вопросы по порядку: { question, answer, cut, sent, missed, node, answerBox, note };
   // answer — null, пока готового ответа нет (идёт, ошибка, остановлено); missed — { count, parts }
@@ -164,6 +184,10 @@
           ? `${words.partly}: ${percent(sent.used, sent.total)}% текста`
           : words.whole,
       );
+    }
+    if (current.captions) {
+      const { kind, lang } = current.captions;
+      parts.push(`Субтитры: ${kind === "asr" ? "автоматические" : "ручные"}, ${lang}`);
     }
     const lines = [parts.join(" · ")];
     if (cut) lines.push("Ответ обрезан: не хватило контекста модели (num_ctx в настройках)");
@@ -237,6 +261,10 @@
     const state = current;
     stopPort(); // отключение порта отменяет прежний запрос к Ollama
     setLength(length);
+    if (!state.source) {
+      loadTranscript(state); // краткое содержание — когда загрузятся
+      return;
+    }
     const done = state.results[length];
     if (done) {
       showResult(done);
@@ -259,7 +287,57 @@
       return;
     }
     const { title, text } = state.source;
-    state.conn.post({ type: "summarize", text, title, length }); // порт мёртв — onDisconnect покажет ошибку
+    // порт мёртв — onDisconnect покажет ошибку
+    state.conn.post({ type: "summarize", text, title, length, kind: state.kind });
+  }
+
+  // Субтитры видео — по порту, как и краткое содержание: загружает их summary/background.js.
+  function loadTranscript(state) {
+    showMessage("status", state.words.loading, false);
+    renderFoot();
+    try {
+      state.conn = ns.connectPort(PORT_NAME, {
+        onMessage: (msg) => onTranscript(state, msg),
+        onDisconnect: () => {
+          state.conn = null;
+          showError("соединение с расширением прервалось");
+        },
+      });
+    } catch {
+      showError("расширение перезагружено, обновите страницу", false);
+      return;
+    }
+    state.conn.post({ type: "transcript", videoId: state.videoId });
+  }
+
+  function onTranscript(state, msg) {
+    switch (msg?.type) {
+      case "transcript":
+        stopPort();
+        state.source = { title: String(msg.title ?? ""), text: String(msg.text ?? "") };
+        state.captions = { kind: msg.kind, lang: String(msg.lang ?? "") };
+        if (state.source.text.length < MIN_CHARS) {
+          showMessage("status", state.words.tooShort, false);
+          renderFoot();
+          break;
+        }
+        state.ask.hidden = false;
+        request(state.length);
+        break;
+      case "stopped":
+        stopPort();
+        showMessage("status", "Остановлено", true);
+        break;
+      case "error":
+        stopPort();
+        if (NO_TEXT[msg.code]) {
+          state.source = { title: "", text: "" }; // текста нет: ни длины, ни повтор не помогут
+          showMessage("status", state.words[NO_TEXT[msg.code]], false);
+        } else {
+          showError(msg.message ?? "неизвестная ошибка");
+        }
+        break;
+    }
   }
 
   // длинный текст модель читает по частям — см. summary/background.js
@@ -302,10 +380,12 @@
 
   function chooseLength(length) {
     const state = current;
-    if (state.source.text.length < MIN_CHARS) return;
+    if (state.source && state.source.text.length < MIN_CHARS) return;
     // эта длина уже готова или идёт — ничего не делаем; после ошибки — повтор
     if (length === state.length && (state.conn || state.results[length])) return;
-    request(length);
+    // субтитры ещё загружаются — краткое содержание этой длины будет, когда загрузятся
+    if (!state.source && state.conn) setLength(length);
+    else request(length);
     saveLength(length);
   }
 
@@ -430,6 +510,7 @@
       type: "ask",
       text,
       title,
+      kind: state.kind,
       question: turn.question,
       summary: state.results[state.length]?.text ?? "",
       history: historyBefore(turn),
@@ -601,20 +682,30 @@
     return { host, panel, body, summaryBox, thread, foot, ask, askInput, askBtn, copyBtn, lengthBtns };
   }
 
-  // source — { kind: "page" } или { kind: "selection", text } из summary/background.js: текст
-  // страницы панель берёт сама, выделенный — оттуда (выделение могло быть во вложенном фрейме).
-  // Заголовок страницы — модели для контекста, и для выделенного тоже.
+  // Текст для модели: страницы — из документа, выделенного — из source; у видео — null, субтитры
+  // загрузит request().
+  function sourceText(kind, source) {
+    if (kind === "video") return null;
+    if (kind === "page") return extract.page();
+    return { title: document.title.trim(), text: extract.normalize(String(source.text ?? "")) };
+  }
+
+  // source — { kind: "page" }, { kind: "selection", text } или { kind: "video", videoId } из
+  // summary/background.js: текст страницы панель берёт сама, выделенный — оттуда (выделение могло
+  // быть во вложенном фрейме), субтитры видео просит у него по порту. Заголовок страницы — модели
+  // для контекста, и для выделенного тоже; у видео — его название.
+  // Видео потом может смениться без перезагрузки страницы — панель остаётся о прежнем.
   function open(source = { kind: "page" }) {
     close();
-    const selection = source.kind === "selection";
-    const words = WORDING[selection ? "selection" : "page"];
-    const text = selection
-      ? { title: document.title.trim(), text: extract.normalize(String(source.text ?? "")) }
-      : extract.page();
+    const kind = Object.hasOwn(WORDING, source.kind) ? source.kind : "page";
+    const words = WORDING[kind];
     current = {
       ...build(words),
+      kind,
       words,
-      source: text,
+      videoId: kind === "video" ? String(source.videoId) : null,
+      source: sourceText(kind, source),
+      captions: null,
       results: {},
       sent: null,
       conn: null,
@@ -623,7 +714,9 @@
     };
     setLength(DEFAULT_LENGTH);
     document.documentElement.append(current.host);
-    if (current.source.text.length < MIN_CHARS) {
+    if (!current.source) {
+      current.ask.hidden = true; // спрашивать — когда будут субтитры
+    } else if (current.source.text.length < MIN_CHARS) {
       current.ask.hidden = true;
       showMessage("status", words.tooShort, false);
       return;

@@ -1,19 +1,25 @@
-// Краткое содержание страницы и выделенного, часть service worker: кнопка в popup (сообщение
-// summarizeTab), пункты контекстного меню на странице и на выделенном, внедрение панели
-// (panel.js) и порт "summary", по которому она просит краткое содержание. От перевода страницы,
-// выделенного и озвучки не зависит.
+// Краткое содержание страницы, выделенного и видео YouTube, часть service worker: кнопка в popup
+// (сообщение summarizeTab), пункты контекстного меню на странице и на выделенном, внедрение
+// панели (panel.js) и порт "summary", по которому она просит субтитры видео и краткое
+// содержание. На странице видео (www.youtube.com/watch) кнопка и пункт «Краткое содержание
+// страницы» делают краткое содержание видео по его субтитрам. От перевода страницы, выделенного
+// и озвучки не зависит.
 //
-// Один порт — один запрос. Панель → сюда: summarize { text, title, length } — краткое
-// содержание; ask { text, title, question, summary, history } — вопрос по тексту, summary —
-// краткое содержание из панели или "", history — прошлые вопросы и ответы
-// [{ question, answer }] по порядку; ping.
-// Отсюда → панели: source { used, total } — сколько символов текста ушло модели;
+// Один порт — один запрос. Панель → сюда: transcript { videoId } — субтитры видео текстом;
+// summarize { text, title, length, kind } — краткое содержание; ask { text, title, kind,
+// question, summary, history } — вопрос по тексту, summary — краткое содержание из панели или "",
+// history — прошлые вопросы и ответы [{ question, answer }] по порядку; ping. kind — "video"
+// (промпты для расшифровки видео) или любое другое — промпты для страницы.
+// Отсюда → панели: transcript { title, text, kind, lang } — субтитры: kind — "asr"
+// (автоматические) или "manual", lang — их язык; source { used, total } — сколько символов текста
+// ушло модели;
 // progress { step: "part", part, parts } | { step: "merge" } | { step: "final" } — длинный текст:
 // заметки по частям, сведение заметок, итог; у вопроса — { step: "search", part, parts } |
 // { step: "final" }: поиск по частям, ответ; partial { text } — ответ по мере генерации;
 // result { text, cut, missed?, parts? } — готово, cut — ответ упёрся в num_ctx; missed — у
 // вопроса по длинному тексту: в скольких из parts частей модель упёрлась в предел, ничего не
-// выписав; error { code, message }; stopped — «Стоп».
+// выписав; error { code, message }, у субтитров code — из pageCaptions
+// (lib/youtube-captions.js); stopped — «Стоп».
 // Панель закрыли или сменили длину — порт отключился — запрос к Ollama отменён.
 
 import { ErrorCode, OllamaError } from "../lib/ollama.js";
@@ -24,16 +30,18 @@ import { withPrioritySlot } from "../lib/priority.js";
 import { onPortClosed, safePost } from "../lib/port.js";
 import { ensureMenu } from "../lib/menus.js";
 import { onStop, registerQueue } from "../lib/stop.js";
+import { pageCaptions, parseJson3 } from "../lib/youtube-captions.js";
 import {
   SUMMARY_LENGTHS,
-  SUMMARY_QUESTION,
   buildAnswerRequest,
   buildMergeRequest,
   buildNotesRequest,
   buildSearchRequest,
   buildSummaryRequest,
   excerptOf,
+  summaryQuestion,
 } from "./lib/prompt.js";
+import { transcriptText } from "./lib/transcript.js";
 import {
   cutText,
   excerptTokens,
@@ -62,6 +70,17 @@ const MAX_CHARS = 150_000;
 // Заметки по частям — для стольких последних текстов (см. notesEntry).
 const NOTES_CACHE_SIZE = 3;
 
+// Ошибки pageCaptions — для «Не получилось: …». NO_CAPTIONS и LIVE панель пишет по-своему.
+const CAPTION_ERRORS = {
+  NO_PLAYER: "плеер YouTube не найден",
+  NOT_READY: "плеер ещё не загрузил видео, подождите пару секунд",
+  LIVE: "трансляции не поддерживаются",
+  NO_CAPTIONS: "у видео нет субтитров",
+  NO_TOKEN: "YouTube не отдал субтитры: плеер не запросил их с токеном",
+  EMPTY: "YouTube не отдал субтитры: пустой ответ и с токеном",
+  FAILED: "субтитры не загрузились",
+};
+
 chrome.runtime.onInstalled.addListener(() => {
   ensureMenu({
     id: PAGE_MENU_ID,
@@ -75,9 +94,25 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
+// Что сокращать на вкладке с адресом url: на странице видео YouTube — видео, иначе страницу.
+// Адрес вкладки виден по activeTab. → source для openPanel
+function pageSource(url) {
+  try {
+    const { hostname, pathname, searchParams } = new URL(url);
+    const videoId = searchParams.get("v");
+    if (hostname === "www.youtube.com" && pathname === "/watch" && videoId) {
+      return { kind: "video", videoId };
+    }
+  } catch {
+    // адреса нет или он не разбирается — страница
+  }
+  return { kind: "page" };
+}
+
 // Панель — в главном фрейме, даже если выделение во вложенном. panel.js внедряем, только если
 // его там ещё нет или остался осиротевший экземпляр после перезагрузки расширения.
-// source — { kind: "page" } | { kind: "selection", text }, см. open в panel.js.
+// source — { kind: "page" } | { kind: "selection", text } | { kind: "video", videoId }, см. open в
+// panel.js.
 async function openPanel(tabId, source = { kind: "page" }) {
   const target = { tabId };
   const tryOpen = async () => {
@@ -124,7 +159,7 @@ async function selectedText(tabId, frameId, menuText) {
 
 async function openFromMenu(info, tab) {
   if (info.menuItemId === PAGE_MENU_ID) {
-    await openPanel(tab.id);
+    await openPanel(tab.id, pageSource(tab.url));
   } else {
     const text = await selectedText(tab.id, info.frameId ?? 0, info.selectionText ?? "");
     await openPanel(tab.id, { kind: "selection", text });
@@ -142,10 +177,13 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // открывать панель — только страницам расширения (popup), не content scripts
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type !== "summarizeTab" || sender.tab) return;
-  openPanel(msg.tabId).then(
-    () => sendResponse({}),
-    (err) => sendResponse({ error: err.message }),
-  );
+  chrome.tabs
+    .get(msg.tabId)
+    .then((tab) => openPanel(tab.id, pageSource(tab.url)))
+    .then(
+      () => sendResponse({}),
+      (err) => sendResponse({ error: err.message }),
+    );
   return true;
 });
 
@@ -167,6 +205,35 @@ function partialSender(port) {
       timer = 0;
     },
   };
+}
+
+// ---------- Субтитры видео ----------
+
+// Субтитры видео в главном фрейме вкладки → { type: "transcript", title, text, kind, lang } или
+// { type: "error", code, message }. Время у слов есть, но модели текст идёт без меток.
+async function transcript(tabId, videoId) {
+  let r;
+  try {
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: pageCaptions,
+      args: [videoId, null],
+    });
+    r = injection?.result ?? { error: "FAILED", detail: "скрипт на странице не ответил" };
+  } catch (err) {
+    r = { error: "FAILED", detail: err.message };
+  }
+  if (r.error) {
+    const known = CAPTION_ERRORS[r.error] ?? CAPTION_ERRORS.FAILED;
+    const message = r.detail ? `${known} (${r.detail})` : known;
+    return { type: "error", code: r.error, message };
+  }
+  const text = transcriptText(parseJson3(r.json));
+  console.debug(
+    `[ot] краткое содержание ${videoId}: ${text.length} символов субтитров (${r.kind}, ${r.lang})`,
+  );
+  return { type: "transcript", title: r.title, text, kind: r.kind, lang: r.lang };
 }
 
 // ---------- Запросы к модели ----------
@@ -192,7 +259,7 @@ function ask(job, build, { onContent } = {}) {
   });
 }
 
-// Заметки по частям: SHA-256 от key (модель, язык, размер части, текст) → { notes, merged }.
+// Заметки по частям: SHA-256 от key (модель, язык, kind, размер части, текст) → { notes, merged }.
 // notes[i] — заметки по i-й части splitText, как только готовы (null — ещё нет): оборванный
 // запрос (смена длины, «Стоп») продолжится с той же части, а другая длина возьмёт merged —
 // заметки одни на обе длины. Копия — в storage.session: service worker засыпает через 30 с
@@ -235,12 +302,14 @@ async function notesEntry(key, text, budget) {
 
 // Заметки по частям не влезают в один запрос — сводим их группами, пока не влезут. Если модель
 // не сократила, берём начало: лучше итог без конца, чем бесконечный цикл.
-async function mergeNotes(job, text, { title, lang, budget }) {
+async function mergeNotes(job, text, { title, lang, kind, budget }) {
   while (text.length > budget) {
     safePost(job.port, { type: "progress", step: "merge" });
     const merged = [];
     for (const group of splitText(text, budget)) {
-      const { content } = await ask(job, (ctx) => buildMergeRequest({ text: group, title, lang }, ctx));
+      const { content } = await ask(job, (ctx) =>
+        buildMergeRequest({ text: group, title, lang, kind }, ctx),
+      );
       merged.push(content.trim());
     }
     const next = merged.join("\n\n");
@@ -251,8 +320,9 @@ async function mergeNotes(job, text, { title, lang, budget }) {
 }
 
 // Длинный текст → заметки по частям, сведённые так, чтобы влезли в один запрос.
-async function notesOf(job, text, { title, lang, budget, model }) {
-  const { entry, parts } = await notesEntry(`${model}|${lang}|${budget}|${text}`, text, budget);
+async function notesOf(job, text, { title, lang, kind, budget, model }) {
+  const key = `${model}|${lang}|${kind}|${budget}|${text}`;
+  const { entry, parts } = await notesEntry(key, text, budget);
   if (entry.merged !== null) return entry.merged;
   const { notes } = entry;
   const todo = parts.map((_, i) => i).filter((i) => notes[i] === null);
@@ -260,14 +330,17 @@ async function notesOf(job, text, { title, lang, budget, model }) {
     job.queued = todo.length - k; // оставшиеся части и итог
     safePost(job.port, { type: "progress", step: "part", part: i + 1, parts: parts.length });
     const { content } = await ask(job, (ctx) =>
-      buildNotesRequest({ text: parts[i], title, part: i + 1, parts: parts.length, lang }, ctx),
+      buildNotesRequest(
+        { text: parts[i], title, part: i + 1, parts: parts.length, lang, kind },
+        ctx,
+      ),
     );
     notes[i] = content.trim(); // пусто — в части не нашлось важного, это не ошибка
     saveNotes();
   }
   job.queued = 1; // сведение заметок и итог
   const all = notes.map((n, i) => `Part ${i + 1}:\n${n}`).join("\n\n");
-  entry.merged = await mergeNotes(job, all, { title, lang, budget });
+  entry.merged = await mergeNotes(job, all, { title, lang, kind, budget });
   saveNotes();
   return entry.merged;
 }
@@ -292,17 +365,17 @@ async function complete(job, build) {
 }
 
 // → { text, cut }
-async function summarize(job, { text, title, length }) {
+async function summarize(job, { text, title, kind, length }) {
   const { numCtx, targetLang: lang, model } = await getSettings();
   const budget = inputChars(numCtx);
   const used = cutText(text, MAX_CHARS);
   safePost(job.port, { type: "source", used: used.length, total: text.length });
   const fromNotes = used.length > budget;
-  const source = fromNotes ? await notesOf(job, used, { title, lang, budget, model }) : used;
+  const source = fromNotes ? await notesOf(job, used, { title, lang, kind, budget, model }) : used;
   job.queued = 0;
   if (fromNotes) safePost(job.port, { type: "progress", step: "final" });
   return complete(job, (ctx) =>
-    buildSummaryRequest({ text: source, title, length, lang, fromNotes }, ctx),
+    buildSummaryRequest({ text: source, title, length, lang, kind, fromNotes }, ctx),
   );
 }
 
@@ -313,7 +386,7 @@ async function summarize(job, { text, title, length }) {
 // → { text, missed, parts }: text — выписки одним текстом, "" — ни в одной части ничего не
 // нашлось; missed — в скольких частях модель упёрлась в предел, ничего не выписав (видимо,
 // рассуждала): что в них, неизвестно.
-async function search(job, text, { title, question, past, numCtx }) {
+async function search(job, text, { title, kind, question, past, numCtx }) {
   const budget = inputChars(numCtx);
   const parts = splitText(text, budget);
   const maxTokens = excerptTokens(numCtx);
@@ -325,7 +398,7 @@ async function search(job, text, { title, question, past, numCtx }) {
     safePost(job.port, { type: "progress", step: "search", part: i + 1, parts: parts.length });
     const { content, doneReason } = await ask(job, (ctx) =>
       buildSearchRequest(
-        { text: part, title, part: i + 1, parts: parts.length, question, turns, maxTokens },
+        { text: part, title, part: i + 1, parts: parts.length, question, turns, maxTokens, kind },
         ctx,
       ),
     );
@@ -342,14 +415,18 @@ async function search(job, text, { title, question, past, numCtx }) {
 // Вопрос по тексту. Краткое содержание — первым ответом в истории: вопросы бывают про него.
 // → { text, cut }, у длинного текста ещё missed и parts, если в каких-то частях модель ничего не
 // успела выписать (см. search)
-async function answer(job, { text, title, question, summary, history }) {
+async function answer(job, { text, title, kind, question, summary, history }) {
   const { numCtx, targetLang: lang } = await getSettings();
   const budget = inputChars(numCtx);
   const used = cutText(text, MAX_CHARS);
   safePost(job.port, { type: "source", used: used.length, total: text.length });
-  const past = summary ? [{ question: SUMMARY_QUESTION, answer: summary }, ...history] : history;
+  const past = summary
+    ? [{ question: summaryQuestion(kind), answer: summary }, ...history]
+    : history;
   const fromExcerpts = used.length > budget;
-  const found = fromExcerpts ? await search(job, used, { title, question, past, numCtx }) : null;
+  const found = fromExcerpts
+    ? await search(job, used, { title, kind, question, past, numCtx })
+    : null;
   // выписок нет, но не потому, что части ответили NONE, — «на странице этого нет» было бы неправдой
   if (found && !found.text && found.missed) {
     throw new OllamaError(
@@ -363,7 +440,7 @@ async function answer(job, { text, title, question, summary, history }) {
   if (fromExcerpts) safePost(job.port, { type: "progress", step: "final" });
   const turns = fitTurns(past, historyChars(numCtx) + budget - source.length - question.length);
   const result = await complete(job, (ctx) =>
-    buildAnswerRequest({ text: source, title, question, turns, lang, fromExcerpts }, ctx),
+    buildAnswerRequest({ text: source, title, question, turns, lang, kind, fromExcerpts }, ctx),
   );
   return found?.missed ? { ...result, missed: found.missed, parts: found.parts } : result;
 }
@@ -396,14 +473,16 @@ const isTurn = (turn) => isString(turn?.question) && isString(turn?.answer);
 function start(job, msg) {
   if (!isString(msg?.text)) return null;
   const title = isString(msg.title) ? msg.title : "";
+  const kind = msg.kind === "video" ? "video" : "page";
   if (msg.type === "summarize") {
     const length = SUMMARY_LENGTHS.includes(msg.length) ? msg.length : SUMMARY_LENGTHS[0];
-    return summarize(job, { text: msg.text, title, length });
+    return summarize(job, { text: msg.text, title, kind, length });
   }
   if (msg.type === "ask" && isString(msg.question) && msg.question.trim()) {
     return answer(job, {
       text: msg.text,
       title,
+      kind,
       question: msg.question.trim(),
       summary: isString(msg.summary) ? msg.summary : "",
       history: Array.isArray(msg.history) ? msg.history.filter(isTurn) : [],
@@ -422,6 +501,13 @@ chrome.runtime.onConnect.addListener((port) => {
     job.controller.abort();
   });
   port.onMessage.addListener((msg) => {
+    // субтитры — без модели; после «Стоп» панель их уже не ждёт
+    if (msg?.type === "transcript" && isString(msg.videoId) && port.sender?.tab?.id) {
+      transcript(port.sender.tab.id, msg.videoId).then((reply) => {
+        if (!job.controller.signal.aborted) safePost(port, reply);
+      });
+      return;
+    }
     const work = start(job, msg);
     if (!work) return;
     work

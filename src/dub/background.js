@@ -1,7 +1,8 @@
 // Озвучка YouTube-видео, часть service worker: порт "dub" от кнопки «Перевести» в плеере,
 // сессия на порт.
-// Субтитры видео (page-captions.js в мире страницы) → фразы → перевод с опережением от позиции
-// воспроизведения → синтез Silero с подгонкой длины → звук фраз вкладке, проигрывает она.
+// Английские субтитры видео (pageCaptions из lib/youtube-captions.js в мире страницы) → фразы →
+// перевод с опережением от позиции воспроизведения → синтез Silero с подгонкой длины → звук фраз
+// вкладке, проигрывает она.
 // От перевода страницы и выделенного не зависит.
 //
 // Вкладка → сюда: start { videoId, time, phrases?, translations?, voiced? } — включение,
@@ -25,8 +26,8 @@ import { getSettings } from "../lib/settings.js";
 import { keepAwake } from "../lib/keepalive.js";
 import { onStop, registerQueue } from "../lib/stop.js";
 import { onPortClosed, safePost } from "../lib/port.js";
-import { pageCaptions } from "./page-captions.js";
-import { parseJson3, toPhrases } from "./lib/captions.js";
+import { pageCaptions, parseJson3 } from "../lib/youtube-captions.js";
+import { toPhrases } from "./lib/captions.js";
 import { isStale, nextBatch, nextVoice, pendingCount } from "./lib/queue.js";
 import { DUB_PROMPTS } from "./lib/prompt.js";
 import { DUB_LIMITS, DUB_PLAYER_KEYS, getDubSettings, setDubSettings } from "./lib/settings.js";
@@ -87,7 +88,7 @@ async function loadPhrases(tabId, frameId, videoId) {
       target: { tabId, frameIds: [frameId] },
       world: "MAIN",
       func: pageCaptions,
-      args: [videoId],
+      args: [videoId, "en"],
     });
     r = injection?.result ?? { error: "FAILED", detail: "скрипт на странице не ответил" };
   } catch (err) {
