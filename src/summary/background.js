@@ -13,7 +13,8 @@
 // панели или "", mode — его режим: "essence" — суть, иначе краткое содержание; history — прошлые
 // вопросы и ответы [{ question, answer }] по порядку; clickbait { text, title, length, summary } —
 // кликбейт ли название видео, summary — готовое краткое содержание длины length; ping. kind —
-// "video" (промпты для расшифровки видео) или любое другое — промпты для страницы.
+// "video" (промпты для расшифровки видео) или любое другое — промпты для страницы. Все запросы
+// по одному сообщению — к одной модели, выбранной в popup, когда оно пришло.
 // Отсюда → панели: transcript { title, text, kind, lang } — субтитры: kind — "asr"
 // (автоматические) или "manual", lang — их язык; source { used, total, model } — сколько символов
 // текста ушло модели и какой;
@@ -264,11 +265,12 @@ function withoutThinking(content) {
 
 // Каждый запрос — со своим слотом (общий с переводом лимит, перед очередью перевода страниц):
 // между частями длинного текста успевает перевод выделенного. numCtx — num_ctx, под который
-// посчитан бюджет текста: запрос идёт с ним, а не с тем, что в настройках (у «Сути» он свой,
+// посчитан бюджет текста, model — модель, которой пишутся заметки и ответ (её видно в панели):
+// запрос идёт с ними, а не с тем, что в настройках сейчас (у «Сути» num_ctx свой,
 // ESSENCE_NUM_CTX). onContent, onThinking — см. chat в lib/ollama.js. И onContent, и в ответе
 // content — без рассуждения. → { content, thinking, doneReason }
-function ask(job, build, { numCtx, onContent, onThinking } = {}) {
-  return withPrioritySlot({ signal: job.controller.signal }, async (ctx) => {
+function ask(job, build, { numCtx, model, onContent, onThinking } = {}) {
+  return withPrioritySlot({ signal: job.controller.signal, model }, async (ctx) => {
     const res = await chatWithRetry(build(numCtx ? { ...ctx, numCtx } : ctx), ctx, {
       onContent: onContent && ((content) => onContent(withoutThinking(content))),
       onThinking,
@@ -323,7 +325,7 @@ async function notesEntry(key, text, budget, fresh) {
 
 // Заметки по частям не влезают в один запрос — сводим их группами, пока не влезут. Если модель
 // не сократила, берём начало: лучше итог без конца, чем бесконечный цикл.
-async function mergeNotes(job, text, { title, lang, kind, mode, budget, numCtx }) {
+async function mergeNotes(job, text, { title, lang, kind, mode, budget, numCtx, model }) {
   while (text.length > budget) {
     safePost(job.port, { type: "progress", step: "merge" });
     const merged = [];
@@ -331,7 +333,7 @@ async function mergeNotes(job, text, { title, lang, kind, mode, budget, numCtx }
       const { content } = await ask(
         job,
         (ctx) => buildMergeRequest({ text: group, title, lang, kind, mode }, ctx),
-        { numCtx },
+        { numCtx, model },
       );
       merged.push(content.trim());
     }
@@ -361,22 +363,22 @@ async function notesOf(job, text, { title, lang, kind, mode, budget, numCtx, mod
           { text: parts[i], title, part: i + 1, parts: parts.length, lang, kind, mode },
           ctx,
         ),
-      { numCtx },
+      { numCtx, model },
     );
     notes[i] = content.trim(); // пусто — в части не нашлось важного, это не ошибка
     saveNotes();
   }
   job.queued = 1; // сведение заметок и итог
   const all = notes.map((n, i) => `Part ${i + 1}:\n${n}`).join("\n\n");
-  entry.merged = await mergeNotes(job, all, { title, lang, kind, mode, budget, numCtx });
+  entry.merged = await mergeNotes(job, all, { title, lang, kind, mode, budget, numCtx, model });
   saveNotes();
   return entry.merged;
 }
 
 // Последний запрос — тот, чей ответ панель показывает по мере генерации. Модель начала
 // рассуждать — панели progress think, само рассуждение — в console.debug.
-// → { text, cut }, после рассуждения ещё thinkMs
-async function complete(job, build, { numCtx }) {
+// numCtx, model — см. ask. → { text, cut }, после рассуждения ещё thinkMs
+async function complete(job, build, { numCtx, model }) {
   const partial = partialSender(job.port);
   let thinkStart = 0; // первый кусок рассуждения
   let thinkEnd = 0; // первый кусок ответа после него
@@ -392,6 +394,7 @@ async function complete(job, build, { numCtx }) {
   try {
     const { content, thinking, doneReason } = await ask(job, build, {
       numCtx,
+      model,
       onContent,
       onThinking,
     });
@@ -428,7 +431,7 @@ async function summarize(job, { text, title, kind, length, fresh }) {
   return complete(
     job,
     (ctx) => buildSummaryRequest({ text: source, title, length, lang, kind, fromNotes }, ctx),
-    { numCtx },
+    { numCtx, model },
   );
 }
 
@@ -448,7 +451,7 @@ async function essence(job, { text, title, kind, fresh }) {
   return complete(
     job,
     (ctx) => buildEssenceRequest({ text: source, title, lang, kind, fromNotes }, ctx),
-    { numCtx },
+    { numCtx, model },
   );
 }
 
@@ -459,7 +462,7 @@ async function essence(job, { text, title, kind, fresh }) {
 // → { text, missed, parts }: text — выписки одним текстом, "" — ни в одной части ничего не
 // нашлось; missed — в скольких частях модель упёрлась в предел, ничего не выписав (видимо,
 // рассуждала): что в них, неизвестно.
-async function search(job, text, { title, kind, question, past, numCtx }) {
+async function search(job, text, { title, kind, question, past, numCtx, model }) {
   const budget = inputChars(numCtx);
   const parts = splitText(text, budget);
   const maxTokens = excerptTokens(numCtx);
@@ -476,7 +479,7 @@ async function search(job, text, { title, kind, question, past, numCtx }) {
           { text: part, title, part: i + 1, parts: parts.length, question, turns, maxTokens, kind },
           ctx,
         ),
-      { numCtx },
+      { numCtx, model },
     );
     const excerpt = excerptOf(content);
     if (excerpt) found.push({ head: `Part ${i + 1} of ${parts.length}:\n`, excerpt });
@@ -503,7 +506,7 @@ async function answer(job, { text, title, kind, question, summary, history, mode
   const past = summary ? [{ question: first, answer: summary }, ...history] : history;
   const fromExcerpts = used.length > budget;
   const found = fromExcerpts
-    ? await search(job, used, { title, kind, question, past, numCtx })
+    ? await search(job, used, { title, kind, question, past, numCtx, model })
     : null;
   // выписок нет, но не потому, что части ответили NONE, — «на странице этого нет» было бы неправдой
   if (found && !found.text && found.missed) {
@@ -521,7 +524,7 @@ async function answer(job, { text, title, kind, question, summary, history, mode
     job,
     (ctx) =>
       buildAnswerRequest({ text: source, title, question, turns, lang, kind, fromExcerpts }, ctx),
-    { numCtx },
+    { numCtx, model },
   );
   return found?.missed ? { ...result, missed: found.missed, parts: found.parts } : result;
 }
@@ -544,7 +547,7 @@ async function clickbait(job, { text, title, length, summary }) {
   const { content } = await ask(
     job,
     (ctx) => buildClickbaitRequest({ text: source, title, length, lang, fromNotes, summary }, ctx),
-    { numCtx },
+    { numCtx, model },
   );
   const verdict = clickbaitOf(content);
   if (!verdict) throw new OllamaError(ErrorCode.BAD_RESPONSE, "модель ответила не по схеме");
