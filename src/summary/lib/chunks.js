@@ -18,6 +18,18 @@ export function inputChars(numCtx) {
   return Math.floor((numCtx - PROMPT_TOKENS - answerTokens(numCtx)) * CHARS_PER_TOKEN);
 }
 
+// «В чём суть»: все её запросы, и вопросы под ней тоже, — с этим num_ctx, что бы ни стояло в
+// настройках. Текст до ~72 000 символов (час видео) модель читает целиком.
+export const ESSENCE_NUM_CTX = 32768;
+// Место под рассуждение и ответ «Сути».
+const ESSENCE_ANSWER_TOKENS = 8192;
+
+// Как inputChars(ESSENCE_NUM_CTX), но с местом под рассуждение. По нему в «Сути» всё: целиком
+// ли текст, размер частей, до какого размера сводить заметки.
+export function essenceInputChars() {
+  return Math.floor((ESSENCE_NUM_CTX - PROMPT_TOKENS - ESSENCE_ANSWER_TOKENS) * CHARS_PER_TOKEN);
+}
+
 // Вопросу и прошлым вопросам с ответами — половина места под ответ: ответ на вопрос обычно
 // короче подробного краткого содержания. Плюс место, которое не занял текст, — это считает
 // вызывающий.

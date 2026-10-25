@@ -180,6 +180,7 @@ function watchStall(baseUrl, onStall) {
 
 // POST /api/chat со stream: true. Копит ответ целиком; стрим нужен, чтобы соединение не молчало.
 // opts.onContent(content) — необязательный: получает накопленный ответ после каждого куска.
+// opts.onThinking(thinking) — так же для рассуждения (message.thinking), если модель рассуждает.
 export async function chat(baseUrl, body, opts = {}) {
   const stall = new AbortController();
   let stallError = null;
@@ -191,6 +192,7 @@ export async function chat(baseUrl, body, opts = {}) {
   let reader = null;
   let buffer = "";
   let content = "";
+  let thinking = "";
   let final = null;
 
   const handleLine = (line) => {
@@ -202,6 +204,11 @@ export async function chat(baseUrl, body, opts = {}) {
       throw new OllamaError(ErrorCode.BAD_RESPONSE, "Не удалось разобрать строку стрима Ollama");
     }
     if (chunk.error) throw new OllamaError(ErrorCode.BAD_RESPONSE, chunk.error);
+    const thought = chunk.message?.thinking ?? "";
+    if (thought) {
+      thinking += thought;
+      opts.onThinking?.(thinking);
+    }
     const delta = chunk.message?.content ?? "";
     if (delta) {
       content += delta;
@@ -243,6 +250,7 @@ export async function chat(baseUrl, body, opts = {}) {
   if (!final) throw new OllamaError(ErrorCode.BAD_RESPONSE, "Стрим Ollama оборвался до конца ответа");
   return {
     content,
+    thinking,
     evalCount: final.eval_count ?? 0,
     evalDuration: final.eval_duration ?? 0, // наносекунды
     doneReason: final.done_reason ?? "",

@@ -6,7 +6,8 @@
 // Вопрос по тексту — buildAnswerRequest. Если текст длинный, каждая часть выписывает, что
 // относится к вопросу (buildSearchRequest), а ответ пишется по выпискам (buildAnswerRequest,
 // fromExcerpts). Кликбейт ли название видео — buildClickbaitRequest вдогонку к краткому
-// содержанию.
+// содержанию. «В чём суть» — buildEssenceRequest: главная мысль текста и раскрытие вокруг неё;
+// длинный текст — так же по заметкам, но своим (mode: "essence").
 
 import { languageName } from "../../lib/languages.js";
 import { baseRequest } from "../../lib/prompt.js";
@@ -45,6 +46,7 @@ const SUBJECTS = {
     from: "the page text",
     head: "Page text",
     preamble: "The article says",
+    author: "the author",
     source: `The user message is text taken from a web page: ${PAGE_NOISE}`,
     text: `The page text is at the end of these instructions: ${PAGE_NOISE}`,
     excerpts:
@@ -61,6 +63,7 @@ const SUBJECTS = {
     from: "the transcript",
     head: "Transcript",
     preamble: "The video says",
+    author: "the speaker",
     source:
       "The user message is a transcript of a video's speech taken from its captions; it may be " +
       `in any language. ${VIDEO_NOISE}`,
@@ -87,6 +90,30 @@ function notesFormat(s) {
     'on its own line starting with "- ".'
   );
 }
+
+// Для «Сути» важны не факты подряд, а что утверждается и чем обосновано.
+function essenceNotesFormat(s) {
+  return (
+    `Write at most 12 short points: what the text claims or reports, how ${s.author} supports ` +
+    "it (arguments, examples, numbers), and the conclusions and caveats, skipping minor " +
+    'details; each point on its own line starting with "- ".'
+  );
+}
+
+// Заметки по частям — под то, что из них напишут потом: краткое содержание или суть. Ключ —
+// mode у buildNotesRequest и buildMergeRequest.
+const NOTES = {
+  summary: {
+    goal: "a summary",
+    keep: "keep every important fact, number and name",
+    format: notesFormat,
+  },
+  essence: {
+    goal: "an explanation of its main point",
+    keep: "keep every claim with what supports it, the conclusions and caveats",
+    format: essenceNotesFormat,
+  },
+};
 
 function notesSource(s) {
   return `The user message holds notes on ${s.long}, part by part.`;
@@ -128,34 +155,92 @@ export function buildSummaryRequest({ text, title, length, lang, kind, fromNotes
   );
 }
 
-// Заметки по одной части длинного текста; part — с единицы.
-export function buildNotesRequest({ text, title, part, parts, lang, kind }, ctx) {
+// Заметки по одной части длинного текста; part — с единицы. mode — "summary" (для краткого
+// содержания) или "essence" (для сути), см. NOTES.
+export function buildNotesRequest({ text, title, part, parts, lang, kind, mode = "summary" }, ctx) {
   const name = languageName(lang);
   const s = subjectOf(kind);
+  const notes = NOTES[mode] ?? NOTES.summary;
   return request(
-    `You take notes on one part of ${s.long}; a summary will be written later from the ` +
-      `notes on all parts. ${notesFormat(s)} ${s.source} ${rules(s)} Write in ${name}.`,
+    `You take notes on one part of ${s.long}; ${notes.goal} will be written later from the ` +
+      `notes on all parts. ${notes.format(s)} ${s.source} ${rules(s)} Write in ${name}.`,
     titled(title, `Part ${part} of ${parts}:\n\n${text}`),
     ctx,
   );
 }
 
-// Заметки по частям не влезли в один запрос: сводим их группу в заметки покороче.
-export function buildMergeRequest({ text, title, lang, kind }, ctx) {
+// Заметки по частям не влезли в один запрос: сводим их группу в заметки покороче. mode — как у
+// buildNotesRequest.
+export function buildMergeRequest({ text, title, lang, kind, mode = "summary" }, ctx) {
   const name = languageName(lang);
   const s = subjectOf(kind);
+  const notes = NOTES[mode] ?? NOTES.summary;
   return request(
-    `You condense notes on ${s.long} for a summary that will be written later. Merge ` +
-      "them into shorter notes: keep every important fact, number and name, drop repetitions. " +
-      `${notesFormat(s)} ${notesSource(s)} ${rules(s)} Write in ${name}.`,
+    `You condense notes on ${s.long} for ${notes.goal} that will be written later. Merge ` +
+      `them into shorter notes: ${notes.keep}, drop repetitions. ` +
+      `${notes.format(s)} ${notesSource(s)} ${rules(s)} Write in ${name}.`,
     titled(title, text),
     ctx,
   );
 }
 
+// «В чём суть»: не пересказ по порядку, а главная мысль и всё, что её раскрывает.
+const ESSENCE_TASK =
+  "Find the main point of the text and explain the content around it. The main point is a " +
+  'claim, not a topic: "remote work slows down the growth of junior developers because…", not ' +
+  '"an article about remote work". It may be stated anywhere, often at the end, or follow from ' +
+  "the text as a whole: do not just take the first paragraph.";
+
+const ESSENCE_KINDS =
+  "What the main point is depends on the kind of text: for news, what happened and why it " +
+  "matters; for instructions, what problem they solve and what the key technique is; for " +
+  "research, what was found, how, and where its limits are; for an interview or a talk, the " +
+  "speaker's position; for an opinion piece, its thesis. If the text has no single main point " +
+  "(a digest, a list, a forum thread, a catalog), say so in one sentence, then name its 2–3 " +
+  "main topics and briefly explain each; do not invent a thesis.";
+
+function essenceFormat(s) {
+  return (
+    "Write the main point in one or two sentences as the first paragraph, without a label " +
+    'like "Main point:". Then explain it in sections, each starting with a heading on its own ' +
+    'line starting with "## ": what the main point rests on (each argument and what supports ' +
+    `it), what follows from it, ${s.author}'s caveats. Use only the sections ` +
+    'that fit the text; put points on their own lines starting with "- ". Explain in detail ' +
+    `why ${s.author} thinks so instead of retelling facts in order; leave out everything ` +
+    "unrelated to the main point, even important facts."
+  );
+}
+
+const ESSENCE_LIMITS =
+  "Use only what the text says directly or almost directly: no hidden meaning or subtext, no " +
+  "knowledge of your own, do not explain terms, and say that one thing causes or follows from " +
+  "another only if the text says so.";
+
+// Итог «Сути». Модели с thinking перед ответом рассуждают. Ловушка: ctx.disableThinking — true
+// как раз у моделей с thinking (под ним baseRequest ставит think: false), поэтому при нём —
+// think: true. Модель без thinking получает тот же промпт и отвечает без рассуждения.
+// fromNotes — как у buildSummaryRequest.
+export function buildEssenceRequest({ text, title, lang, kind, fromNotes = false }, ctx) {
+  const name = languageName(lang);
+  const s = subjectOf(kind);
+  const source = fromNotes ? notesSource(s) : s.source;
+  const req = request(
+    `You explain the main point of ${s.many} in ${name}. ${ESSENCE_TASK} ${ESSENCE_KINDS} ` +
+      `${essenceFormat(s)} ${source} ${ESSENCE_LIMITS} ${rules(s)} Write in ${name}.`,
+    titled(title, text),
+    ctx,
+  );
+  return ctx.disableThinking ? { ...req, think: true } : req;
+}
+
 // Краткое содержание из панели идёт в историю вопросов первым ответом — на этот вопрос.
 export function summaryQuestion(kind) {
   return `Summarize ${subjectOf(kind).the}.`;
+}
+
+// То же для вопросов под «Сутью»: первым ответом в истории — суть.
+export function essenceQuestion(kind) {
+  return `What is the main point of ${subjectOf(kind).the}? Explain it.`;
 }
 
 function answerRules(s) {

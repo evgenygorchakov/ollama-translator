@@ -38,3 +38,11 @@ Below the summary you can ask questions about the same text. The model answers o
 text and sees the summary and earlier questions, so follow-ups like «а подробнее про второй
 пункт?» work. On a long page each question is looked up part by part: one request per part plus
 one for the answer.
+
+«В чём суть» in the popup («В чём суть страницы» and «В чём суть выделенного» in the context
+menus) opens the same panel in the «Суть» mode: not a retelling but the main point of the text and
+a detailed explanation around it — what it rests on, what follows from it, the author's caveats.
+A model with thinking (`capabilities` in `ollama show`) reasons before answering, the panel shows
+for how long. All «Суть» requests, questions under it included, use `num_ctx` 32768 whatever the
+settings say, so a text up to ~72 000 characters is read at once. With another `num_ctx` in the
+settings Ollama reloads the model when switching between «Суть» and translation.
