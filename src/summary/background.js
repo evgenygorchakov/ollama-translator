@@ -11,10 +11,11 @@
 // «Сбросить» в панели); ask
 // { text, title, kind, question, summary, history, mode } — вопрос по тексту, summary — ответ из
 // панели или "", mode — его режим: "essence" — суть, иначе краткое содержание; history — прошлые
-// вопросы и ответы [{ question, answer }] по порядку; clickbait { text, title, length, summary } —
-// кликбейт ли название видео, summary — готовое краткое содержание длины length; ping. kind —
-// "video" (промпты для расшифровки видео) или любое другое — промпты для страницы. Все запросы
-// по одному сообщению — к одной модели, выбранной в popup, когда оно пришло.
+// вопросы и ответы [{ question, answer }] по порядку; clickbait { text, title, length, summary,
+// model } — кликбейт ли название видео, summary — готовое краткое содержание длины length, model —
+// модель, которая его написала; ping. kind — "video" (промпты для расшифровки видео) или любое
+// другое — промпты для страницы. Все запросы по одному сообщению — к одной модели: у clickbait —
+// к model, у остальных — к выбранной в popup, когда оно пришло.
 // Отсюда → панели: transcript { title, text, kind, lang } — субтитры: kind — "asr"
 // (автоматические) или "manual", lang — их язык; source { used, total, model } — сколько символов
 // текста ушло модели и какой;
@@ -377,8 +378,9 @@ async function notesOf(job, text, { title, lang, kind, mode, budget, numCtx, mod
 
 // Последний запрос — тот, чей ответ панель показывает по мере генерации. Модель начала
 // рассуждать — панели progress think, само рассуждение — в console.debug.
-// numCtx, model — см. ask. → { text, cut }, после рассуждения ещё thinkMs
-async function complete(job, build, { numCtx, model }) {
+// numCtx, model — см. ask; fixedCtx — numCtx постоянный, не из настроек (у «Сути»): совет поднять
+// num_ctx в настройках не поможет. → { text, cut }, после рассуждения ещё thinkMs
+async function complete(job, build, { numCtx, model, fixedCtx = false }) {
   const partial = partialSender(job.port);
   let thinkStart = 0; // первый кусок рассуждения
   let thinkEnd = 0; // первый кусок ответа после него
@@ -402,11 +404,12 @@ async function complete(job, build, { numCtx, model }) {
     const cut = doneReason === "length";
     // пусто и обрезано — модель упёрлась в num_ctx, ещё рассуждая
     if (!content.trim()) {
+      const hint = fixedCtx ? "" : " (num_ctx в настройках)";
       const message = !cut
         ? "модель вернула пустой ответ"
         : thinking
           ? "модель рассуждала, пока не кончился контекст"
-          : "ответ обрезан: не хватило контекста модели (num_ctx в настройках)";
+          : `ответ обрезан: не хватило контекста модели${hint}`;
       throw new OllamaError(ErrorCode.BAD_RESPONSE, message);
     }
     const text = content.trim();
@@ -451,7 +454,7 @@ async function essence(job, { text, title, kind, fresh }) {
   return complete(
     job,
     (ctx) => buildEssenceRequest({ text: source, title, lang, kind, fromNotes }, ctx),
-    { numCtx, model },
+    { numCtx, model, fixedCtx: true },
   );
 }
 
@@ -524,21 +527,24 @@ async function answer(job, { text, title, kind, question, summary, history, mode
     job,
     (ctx) =>
       buildAnswerRequest({ text: source, title, question, turns, lang, kind, fromExcerpts }, ctx),
-    { numCtx, model },
+    { numCtx, model, fixedCtx: mode === "essence" },
   );
   return found?.missed ? { ...result, missed: found.missed, parts: found.parts } : result;
 }
 
 // Кликбейт ли название видео: вопрос вдогонку к краткому содержанию длины length — тот же текст,
 // те же заметки по частям из кэша, см. buildClickbaitRequest. Видео длиннее MAX_CHARS не
-// проверяем: развязка может быть в непрочитанном конце. → { clickbait, reason }, reason — что
-// обещает название и что в видео.
-async function clickbait(job, { text, title, length, summary }) {
+// проверяем: развязка может быть в непрочитанном конце. model — модель, которая написала
+// summary: вопрос вдогонку — ей, и заметки из кэша — её, даже если в popup уже другая; "" — из
+// настроек. → { clickbait, reason }, reason — что обещает название и что в видео.
+async function clickbait(job, { text, title, length, summary, model: summaryModel }) {
   if (text.length > MAX_CHARS) {
     console.debug(`[ot] кликбейт «${title}»: не проверяю, учтено только начало видео`);
     return { clickbait: false, reason: "" };
   }
-  const { numCtx, targetLang: lang, model } = await getSettings();
+  const settings = await getSettings();
+  const { numCtx, targetLang: lang } = settings;
+  const model = summaryModel || settings.model;
   const budget = inputChars(numCtx);
   const fromNotes = text.length > budget;
   const notesOpts = { title, lang, kind: "video", mode: "summary", budget, numCtx, model };
@@ -595,7 +601,8 @@ function start(job, msg) {
     return essence(job, { text: msg.text, title, kind, fresh });
   }
   if (msg.type === "clickbait" && title.trim() && isString(msg.summary) && msg.summary.trim()) {
-    return clickbait(job, { text: msg.text, title, length, summary: msg.summary });
+    const model = isString(msg.model) ? msg.model : "";
+    return clickbait(job, { text: msg.text, title, length, summary: msg.summary, model });
   }
   if (msg.type === "ask" && isString(msg.question) && msg.question.trim()) {
     return answer(job, {

@@ -244,10 +244,11 @@
     return nodes;
   }
 
-  // Ответ панели. У сути первый абзац — сама мысль, он выделен.
+  // Ответ панели. У сути первый абзац — сама мысль, он выделен. localName, а не tagName: в
+  // XHTML-документе tagName в нижнем регистре.
   function renderText(text) {
     const nodes = textNodes(text);
-    if (current.mode === "essence" && nodes[0]?.tagName === "P") nodes[0].classList.add("thesis");
+    if (current.mode === "essence" && nodes[0]?.localName === "p") nodes[0].classList.add("thesis");
     current.summaryBox.replaceChildren(...nodes);
   }
 
@@ -525,12 +526,12 @@
 
   // ---------- Кликбейт ----------
 
-  // Название видео — на кликбейт, после готового краткого содержания длины length: модель
-  // спрашивают вдогонку к нему. Один раз на панель; не получилось — плашки нет, проверка
-  // повторится после следующего готового краткого содержания. После обрезанного (упёрлось в
-  // num_ctx) не проверяем: вопрос вдогонку не влезет, и Ollama выкинет из запроса сообщение с
-  // названием и текстом. Название из одних пробелов фон не проверяет и не отвечает — порт висел
-  // бы до закрытия панели.
+  // Название видео — на кликбейт, после готового краткого содержания длины length: ту модель,
+  // что его написала, спрашивают вдогонку к нему. Один раз на панель; не получилось — плашки
+  // нет, проверка повторится после следующего готового краткого содержания. После обрезанного
+  // (упёрлось в num_ctx) не проверяем: вопрос вдогонку не влезет, и Ollama выкинет из запроса
+  // сообщение с названием и текстом. Название из одних пробелов фон не проверяет и не отвечает —
+  // порт висел бы до закрытия панели.
   function checkTitle(length) {
     const state = current;
     const result = state.results[length];
@@ -548,7 +549,8 @@
       return; // расширение перезагружено
     }
     const { title, text } = state.source;
-    state.checkConn.post({ type: "clickbait", text, title, length, summary: result.text });
+    const model = result.sent?.model ?? "";
+    state.checkConn.post({ type: "clickbait", text, title, length, summary: result.text, model });
   }
 
   function stopCheck() {
