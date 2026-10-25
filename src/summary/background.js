@@ -5,8 +5,10 @@
 // работают с видео по его субтитрам. От перевода страницы, выделенного и озвучки не зависит.
 //
 // Один порт — один запрос. Панель → сюда: transcript { videoId } — субтитры видео текстом;
-// summarize { text, title, length, kind } — краткое содержание; essence { text, title, kind } —
-// суть: главная мысль и раскрытие вокруг неё, модель с thinking перед ответом рассуждает; ask
+// summarize { text, title, length, kind, fresh } — краткое содержание; essence { text, title,
+// kind, fresh } — суть: главная мысль и раскрытие вокруг неё, модель с thinking перед ответом
+// рассуждает; fresh: true — заметки по частям этого текста считать заново, не из кэша (после
+// «Сбросить» в панели); ask
 // { text, title, kind, question, summary, history, mode } — вопрос по тексту, summary — ответ из
 // панели или "", mode — его режим: "essence" — суть, иначе краткое содержание; history — прошлые
 // вопросы и ответы [{ question, answer }] по порядку; clickbait { text, title, length, summary } —
@@ -303,13 +305,16 @@ async function sha256(text) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// → { entry, parts }
-async function notesEntry(key, text, budget) {
+// fresh — начать с пустых заметок и заменить ими запись в кэше; запрос, оборванный сбросом,
+// если и допишет заметку, то в прежнюю запись, которой в кэше уже нет. → { entry, parts }
+async function notesEntry(key, text, budget, fresh) {
   const [cache, hash] = await Promise.all([loadNotes(), sha256(key)]);
   const parts = splitText(text, budget);
   let entry = cache.get(hash);
   cache.delete(hash);
-  if (entry?.notes?.length !== parts.length) entry = { notes: parts.map(() => null), merged: null };
+  if (fresh || entry?.notes?.length !== parts.length) {
+    entry = { notes: parts.map(() => null), merged: null };
+  }
   cache.set(hash, entry);
   while (cache.size > NOTES_CACHE_SIZE) cache.delete(cache.keys().next().value);
   saveNotes();
@@ -338,10 +343,11 @@ async function mergeNotes(job, text, { title, lang, kind, mode, budget, numCtx }
 }
 
 // Длинный текст → заметки по частям, сведённые так, чтобы влезли в один запрос. mode —
-// "summary" (для краткого содержания) или "essence" (для сути): заметки у них разные.
-async function notesOf(job, text, { title, lang, kind, mode, budget, numCtx, model }) {
+// "summary" (для краткого содержания) или "essence" (для сути): заметки у них разные. fresh —
+// не брать заметки из кэша, см. notesEntry.
+async function notesOf(job, text, { title, lang, kind, mode, budget, numCtx, model, fresh }) {
   const key = `${model}|${lang}|${kind}|${mode}|${budget}|${text}`;
-  const { entry, parts } = await notesEntry(key, text, budget);
+  const { entry, parts } = await notesEntry(key, text, budget, fresh);
   if (entry.merged !== null) return entry.merged;
   const { notes } = entry;
   const todo = parts.map((_, i) => i).filter((i) => notes[i] === null);
@@ -408,16 +414,15 @@ async function complete(job, build, { numCtx }) {
   }
 }
 
-// → { text, cut }
-async function summarize(job, { text, title, kind, length }) {
+// fresh — см. notesOf. → { text, cut }
+async function summarize(job, { text, title, kind, length, fresh }) {
   const { numCtx, targetLang: lang, model } = await getSettings();
   const budget = inputChars(numCtx);
   const used = cutText(text, MAX_CHARS);
   safePost(job.port, { type: "source", used: used.length, total: text.length, model });
   const fromNotes = used.length > budget;
-  const source = fromNotes
-    ? await notesOf(job, used, { title, lang, kind, mode: "summary", budget, numCtx, model })
-    : used;
+  const notesOpts = { title, lang, kind, mode: "summary", budget, numCtx, model, fresh };
+  const source = fromNotes ? await notesOf(job, used, notesOpts) : used;
   job.queued = 0;
   if (fromNotes) safePost(job.port, { type: "progress", step: "final" });
   return complete(
@@ -428,17 +433,16 @@ async function summarize(job, { text, title, kind, length }) {
 }
 
 // В чём суть: всё — с num_ctx «Сути», длинный текст — по своим заметкам, итог — с рассуждением,
-// если модель умеет. → { text, cut, thinkMs? }
-async function essence(job, { text, title, kind }) {
+// если модель умеет. fresh — см. notesOf. → { text, cut, thinkMs? }
+async function essence(job, { text, title, kind, fresh }) {
   const { targetLang: lang, model } = await getSettings();
   const numCtx = ESSENCE_NUM_CTX;
   const budget = essenceInputChars();
   const used = cutText(text, MAX_CHARS);
   safePost(job.port, { type: "source", used: used.length, total: text.length, model });
   const fromNotes = used.length > budget;
-  const source = fromNotes
-    ? await notesOf(job, used, { title, lang, kind, mode: "essence", budget, numCtx, model })
-    : used;
+  const notesOpts = { title, lang, kind, mode: "essence", budget, numCtx, model, fresh };
+  const source = fromNotes ? await notesOf(job, used, notesOpts) : used;
   job.queued = 0;
   if (fromNotes) safePost(job.port, { type: "progress", step: "final" });
   return complete(
@@ -580,11 +584,12 @@ function start(job, msg) {
   const title = isString(msg.title) ? msg.title : "";
   const kind = msg.kind === "video" ? "video" : "page";
   const length = SUMMARY_LENGTHS.includes(msg.length) ? msg.length : SUMMARY_LENGTHS[0];
+  const fresh = msg.fresh === true;
   if (msg.type === "summarize") {
-    return summarize(job, { text: msg.text, title, kind, length });
+    return summarize(job, { text: msg.text, title, kind, length, fresh });
   }
   if (msg.type === "essence") {
-    return essence(job, { text: msg.text, title, kind });
+    return essence(job, { text: msg.text, title, kind, fresh });
   }
   if (msg.type === "clickbait" && title.trim() && isString(msg.summary) && msg.summary.trim()) {
     return clickbait(job, { text: msg.text, title, length, summary: msg.summary });

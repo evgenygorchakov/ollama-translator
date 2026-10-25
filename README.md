@@ -46,3 +46,8 @@ A model with thinking (`capabilities` in `ollama show`) reasons before answering
 for how long. All «Суть» requests, questions under it included, use `num_ctx` 32768 whatever the
 settings say, so a text up to ~72 000 characters is read at once. With another `num_ctx` in the
 settings Ollama reloads the model when switching between «Суть» and translation.
+
+«Сбросить» in the panel forgets all answers, questions and the clickbait verdict; the mode you
+pick next is asked again with the current settings. To compare models: press «Сбросить», change
+the model in the popup, then pick the mode. A long text is read part by part again; the page text
+and captions are not read again.

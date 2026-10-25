@@ -94,7 +94,7 @@
     }
     .title { flex: 1; font-size: 13px; font-weight: 600; }
     .bar {
-      display: flex; align-items: center; gap: 8px;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
       padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: 12px;
     }
     .spacer { flex: 1; }
@@ -165,13 +165,15 @@
   `;
 
   // { host, panel, heading, headingText, body, summaryBox, thread, foot, ask, askInput, askBtn,
-  //   copyBtn, modeBtns, kind, words, videoId, source: { title, text } | null,
+  //   resetBtn, copyBtn, modeBtns, kind, words, videoId, source: { title, text } | null,
   //   captions: { kind, lang } | null, mode, results: { [mode]: { text, cut, thinkMs, sent } },
-  //   sent: { used, total, model } | null, conn, thinkTimer, turns, askConn, checked, checkConn }
+  //   stale, sent: { used, total, model } | null, conn, thinkTimer, turns, askConn, checked,
+  //   checkConn }
   // kind и words — source.kind из open() и надписи для него из WORDING. source — текст для модели;
   // у видео null, пока субтитры не загружены. captions — какие субтитры взяты.
   // mode — режим из MODES; results — готовые ответы по режимам, thinkMs — сколько модель
-  // рассуждала (без рассуждения — undefined).
+  // рассуждала (без рассуждения — undefined). stale — Set режимов, сброшенных «Сбросить»: их
+  // первый запрос после сброса считает заметки по частям заново.
   // conn — порт идущего запроса: субтитров или ответа панели (краткого содержания или сути).
   // thinkTimer — таймер «Обдумываю… N с», пока модель рассуждает.
   // sent — сколько текста ушло модели в последнем запросе и какой модели (сообщение source).
@@ -347,12 +349,41 @@
     }
     const { title, text } = state.source;
     const { kind } = state;
+    // После сброса первый запрос режима — с fresh: фон считает заметки по частям заново. Заметки
+    // у длин краткого содержания общие — пересчитанные для одной годятся и другой.
+    const fresh = state.stale.has(mode);
+    for (const key of LENGTHS.includes(mode) ? LENGTHS : [mode]) state.stale.delete(key);
     // порт мёртв — onDisconnect покажет ошибку
     state.conn.post(
       mode === "essence"
-        ? { type: "essence", text, title, kind }
-        : { type: "summarize", text, title, length: mode, kind },
+        ? { type: "essence", text, title, kind, fresh }
+        : { type: "summarize", text, title, length: mode, kind, fresh },
     );
+  }
+
+  // «Сбросить»: оборвать идущие запросы, забыть ответы всех режимов, вопросы и проверку названия
+  // (плашка уходит). Модель сами не спрашиваем: режим, и текущий тоже, выбирают кнопкой — например,
+  // сменив модель в popup. Текст и субтитры не перечитываем.
+  function reset() {
+    const state = current;
+    stopPort();
+    stopAsk();
+    stopCheck();
+    state.results = {};
+    state.sent = null;
+    state.turns = [];
+    state.thread.replaceChildren();
+    state.checked = false;
+    state.heading.querySelector(".badge")?.remove();
+    state.stale = new Set(MODES.map(([key]) => key));
+    showMessage("status", "Ответы забыты — выберите режим, и модель ответит заново", false);
+    renderFoot();
+  }
+
+  // Поле вопроса и «Сбросить» — только когда есть что сокращать: у видео — после субтитров.
+  function showControls(shown) {
+    current.ask.hidden = !shown;
+    current.resetBtn.hidden = !shown;
   }
 
   // Субтитры видео — по порту, как и краткое содержание: загружает их summary/background.js.
@@ -385,7 +416,7 @@
           renderFoot();
           break;
         }
-        state.ask.hidden = false;
+        showControls(true);
         request(state.mode);
         break;
       case "stopped":
@@ -454,7 +485,8 @@
   function chooseMode(mode) {
     const state = current;
     if (state.source && state.source.text.length < MIN_CHARS) return;
-    // этот режим уже готов или идёт — ничего не делаем; после ошибки — повтор
+    // этот режим уже готов или идёт — ничего не делаем; после ошибки — повтор, после сброса —
+    // запрос заново
     if (mode === state.mode && (state.conn || state.results[mode])) return;
     // субтитры ещё загружаются — ответ этого режима будет, когда загрузятся
     if (!state.source && state.conn) setMode(mode);
@@ -764,10 +796,13 @@
       modeBtns.set(key, btn);
       modes.append(btn);
     }
+    const resetBtn = el("button", null, "Сбросить");
+    resetBtn.title = "Забыть ответы и вопросы — например, чтобы спросить заново другой моделью";
+    resetBtn.addEventListener("click", () => reset());
     const copyBtn = el("button", null, "Копировать");
     copyBtn.hidden = true;
     copyBtn.addEventListener("click", () => copy());
-    bar.append(modes, el("span", "spacer"), copyBtn);
+    bar.append(modes, el("span", "spacer"), resetBtn, copyBtn);
 
     const body = el("div", "body");
     const summaryBox = el("div", "summary");
@@ -827,6 +862,7 @@
       ask,
       askInput,
       askBtn,
+      resetBtn,
       copyBtn,
       modeBtns,
     };
@@ -859,6 +895,7 @@
       captions: null,
       mode: null,
       results: {},
+      stale: new Set(),
       sent: null,
       conn: null,
       thinkTimer: 0,
@@ -871,9 +908,9 @@
     setMode(initial ?? DEFAULT_LENGTH);
     document.documentElement.append(current.host);
     if (!current.source) {
-      current.ask.hidden = true; // спрашивать — когда будут субтитры
+      showControls(false); // спрашивать и сбрасывать — когда будут субтитры
     } else if (current.source.text.length < MIN_CHARS) {
-      current.ask.hidden = true;
+      showControls(false);
       showMessage("status", words.tooShort, false);
       return;
     }
