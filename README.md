@@ -9,9 +9,11 @@ local [Ollama](https://ollama.com) and dubs YouTube videos in Russian through Si
    extension origins and restart Ollama:
    - Windows: `setx OLLAMA_ORIGINS "chrome-extension://*,moz-extension://*"`, quit Ollama from the
      tray and start it from the Start menu;
-   - Linux: `sudo systemctl edit ollama`, add
-     `Environment="OLLAMA_ORIGINS=chrome-extension://*,moz-extension://*"` under `[Service]`,
-     `sudo systemctl restart ollama`.
+   - Linux (systemd service from the official install script):
+
+     ```bash
+     sudo mkdir -p /etc/systemd/system/ollama.service.d && printf '[Service]\nEnvironment="OLLAMA_ORIGINS=chrome-extension://*,moz-extension://*"\n' | sudo tee /etc/systemd/system/ollama.service.d/origins.conf && sudo systemctl daemon-reload && sudo systemctl restart ollama
+     ```
 2. Load the extension and pick the model in its popup:
    - Chrome: `chrome://extensions` → Developer mode → Load unpacked → project folder;
    - Firefox: `about:debugging` → This Firefox → Load Temporary Add-on → `manifest.json` (until
