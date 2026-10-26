@@ -100,13 +100,13 @@
   // Ползунки меню: настройка → подпись, вид значения и подсказка.
   const RANGES = {
     dubOriginalVolume: {
-      label: "Громкость оригинала",
+      label: "Original volume",
       format: (v) => `${Math.round(v * 100)}%`,
     },
     dubMaxSpeed: {
-      label: "Ускорение речи, не больше",
-      format: (v) => `×${v.toLocaleString("ru-RU", { maximumFractionDigits: 1 })}`,
-      hint: "Когда перевод длиннее оригинала. Для ещё не озвученных фраз",
+      label: "Max speech speed-up",
+      format: (v) => `×${v.toLocaleString("en-US", { maximumFractionDigits: 1 })}`,
+      hint: "When the translation is longer than the original. Applies to phrases not voiced yet",
     },
   };
 
@@ -210,11 +210,11 @@
     for (const type of events.split(" ")) host.addEventListener(type, (e) => e.stopPropagation());
 
     const main = button("main", onClick);
-    const settings = button("settings", () => setMenu(ui.menu.hidden), "", "Настройки перевода");
+    const settings = button("settings", () => setMenu(ui.menu.hidden), "", "Translation settings");
     settings.append(slidersIcon());
     settings.setAttribute("aria-expanded", "false");
     settings.hidden = true; // пока service worker не прислал настройки
-    const close = button("close", () => turnOff(), "✕", "Выключить озвучку");
+    const close = button("close", () => turnOff(), "✕", "Turn off dubbing");
     close.hidden = true;
     const bar = element("div", "bar");
     bar.append(main, settings, close);
@@ -242,8 +242,8 @@
     subtitlesBox.setAttribute("role", "switch");
     subtitlesBox.addEventListener("change", onSubtitlesToggle);
     const toggle = element("label", "item toggle");
-    toggle.append(element("span", "", "Русские субтитры"), subtitlesBox, element("span", "switch"));
-    const options = button("link", openOptions, "Голос и Silero — в настройках расширения");
+    toggle.append(element("span", "", "Russian subtitles"), subtitlesBox, element("span", "switch"));
+    const options = button("link", openOptions, "Voice and Silero: extension settings");
     menu.append(toggle, options);
 
     const panel = element("div", "panel");
@@ -350,7 +350,7 @@
     voice.clear();
     pausedByUs = false;
     overridden = false;
-    render("idle", "Перевести");
+    render("idle", "Translate");
     showSubtitle();
   }
 
@@ -444,7 +444,7 @@
     pausedByUs = false;
     if (state === "buffering") {
       overridden = true;
-      render("on", "Озвучка ✓", onHint);
+      render("on", "Dubbing ✓", onHint);
     }
   }
 
@@ -512,13 +512,13 @@
     overridden = false;
     voice.unlock(); // только в обработчике нажатия: иначе браузер не даст включить звук
     if (!settingKeys.length) loadSettings(); // без них оригинал звучал бы в полную громкость
-    if (adShowing()) render("ad", "Переведу после рекламы", "Нажмите, чтобы отменить");
+    if (adShowing()) render("ad", "Will translate after the ad", "Click to cancel");
     else begin();
   }
 
   function begin() {
     enabledAt = performance.now();
-    render("loading", "Загружаю субтитры…");
+    render("loading", "Loading captions…");
     updateProgress(); // субтитры уже есть — сразу к подготовке
     if (state !== "on") holdVideo();
     showSubtitle();
@@ -531,7 +531,7 @@
     enabled = false;
     closePort();
     releaseVideo();
-    render("idle", "Перевести");
+    render("idle", "Translate");
     showSubtitle();
   }
 
@@ -559,17 +559,17 @@
       if (share < 1) {
         render(
           "preparing",
-          `Готовлю озвучку… ${Math.floor(share * 100)}%`,
-          `Перевожу и озвучиваю первые ${READY_S} с от текущей позиции\nНажмите, чтобы отменить`,
+          `Preparing dubbing… ${Math.floor(share * 100)}%`,
+          `Translating and voicing the first ${READY_S} s from the current position\nClick to cancel`,
         );
         return;
       }
       const readyIn = (performance.now() - enabledAt) / 1000;
-      const count = `${phrases.length} ${plural(phrases.length, "фраза", "фразы", "фраз")}`;
-      const source = kind === "asr" ? "автоматические" : "ручные";
+      const count = `${phrases.length} ${phrases.length === 1 ? "phrase" : "phrases"}`;
+      const source = kind === "asr" ? "automatic" : "manual";
       onHint =
-        `Субтитры: ${count} (${source})\nПодготовка: ${readyIn.toFixed(1)} с\n` +
-        "Нажмите, чтобы выключить";
+        `Captions: ${count} (${source})\nPreparation: ${readyIn.toFixed(1)} s\n` +
+        "Click to turn off";
       resume();
     } else if (state === "buffering") {
       if (readyShare(t, RESUME_S) === 1) resume();
@@ -580,7 +580,7 @@
 
   // Голос включён, видео продолжается, если ждало подготовку.
   function resume() {
-    render("on", "Озвучка ✓", onHint);
+    render("on", "Dubbing ✓", onHint);
     releaseVideo();
   }
 
@@ -590,8 +590,8 @@
     holdVideo();
     render(
       "buffering",
-      "Догружаю озвучку…",
-      "Подготовка отстала от видео, оно продолжится само\nНажмите, чтобы выключить озвучку",
+      "Loading more dubbing…",
+      "Preparation fell behind the video, it will resume on its own\nClick to turn off dubbing",
     );
     postPosition(); // service worker'у — готовить отсюда
   }
@@ -606,7 +606,7 @@
       showSubtitle();
       return;
     }
-    render("error", `⚠ ${message}`, [detail, "Нажмите, чтобы повторить"].filter(Boolean).join("\n"));
+    render("error", `⚠ ${message}`, [detail, "Click to retry"].filter(Boolean).join("\n"));
   }
 
   // «Стоп» в popup или Alt+Shift+S: голос смолкает, видео, которое ждало подготовку,
@@ -615,7 +615,7 @@
   function onStopped() {
     if (!enabled || state === "error") return false;
     releaseVideo();
-    render("stopped", "▶ Продолжить", "Озвучка остановлена кнопкой «Стоп»\nНажмите, чтобы продолжить");
+    render("stopped", "▶ Resume", "Dubbing was stopped with the “Stop” button\nClick to resume");
     return true;
   }
 
@@ -748,7 +748,7 @@
     switch (msg?.type) {
       case "phrases":
         if (!msg.list.length) {
-          showError({ code: "NO_CAPTIONS", message: "В субтитрах нет речи" });
+          showError({ code: "NO_CAPTIONS", message: "No speech in the captions" });
           break;
         }
         phrases = msg.list;
@@ -786,7 +786,7 @@
     if (!enabled) return;
     fastFails = Date.now() - connectedAt < FAST_FAIL_MS ? fastFails + 1 : 0;
     if (fastFails > MAX_FAST_FAILS) {
-      showError({ code: "PORT", message: "Связь с расширением потеряна" });
+      showError({ code: "PORT", message: "Lost connection to the extension" });
       return;
     }
     if (awaited()) sendStart();
@@ -807,7 +807,7 @@
           needsPing: awaited,
         });
       } catch {
-        showError({ code: "EXTENSION", message: "Расширение перезагружено, обновите страницу" });
+        showError({ code: "EXTENSION", message: "The extension was reloaded, reload the page" });
         return;
       }
       connectedAt = Date.now();
@@ -837,14 +837,6 @@
   // «Стоп» не застал — закрываем, иначе перевод пошёл бы дальше.
   function onRuntimeMessage(msg) {
     if (msg?.type === "dubStopped" && onStopped()) closePort();
-  }
-
-  function plural(n, one, few, many) {
-    const d = n % 10;
-    const dd = n % 100;
-    if (d === 1 && dd !== 11) return one;
-    if (d >= 2 && d <= 4 && (dd < 12 || dd > 14)) return few;
-    return many;
   }
 
   function dispose() {

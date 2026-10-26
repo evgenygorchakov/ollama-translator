@@ -13,9 +13,9 @@
   // Режимы: длины краткого содержания (ключи — SUMMARY_LENGTHS из lib/prompt.js) и суть. В
   // storage — только последняя длина: «Суть» открывают своей кнопкой.
   const MODES = [
-    ["short", "Коротко"],
-    ["long", "Подробно"],
-    ["essence", "Суть"],
+    ["short", "Short"],
+    ["long", "Detailed"],
+    ["essence", "Main point"],
   ];
   const LENGTHS = ["short", "long"];
   const DEFAULT_LENGTH = "short";
@@ -28,40 +28,40 @@
   // заголовок краткого содержания, essence — сути.
   const WORDING = {
     page: {
-      title: "Краткое содержание",
-      essence: "В чём суть",
-      reading: "Читаю страницу…",
-      parts: "Страница длинная — читаю по частям",
-      partly: "Учтено начало страницы",
-      whole: "Учтён весь текст страницы",
-      tooShort: "На странице почти нет текста — сокращать нечего",
-      ask: "Спросить о странице…",
-      search: "Страница длинная — ищу ответ по частям",
+      title: "Summary",
+      essence: "Main point",
+      reading: "Reading the page…",
+      parts: "The page is long, reading it in parts",
+      partly: "Covers the beginning of the page",
+      whole: "Covers the whole page",
+      tooShort: "The page has almost no text, nothing to summarize",
+      ask: "Ask about the page…",
+      search: "The page is long, searching for the answer in parts",
     },
     selection: {
-      title: "Кратко о выделенном",
-      essence: "В чём суть выделенного",
-      reading: "Читаю выделенное…",
-      parts: "Выделено много — читаю по частям",
-      partly: "Учтено начало выделенного",
-      whole: "Учтён весь выделенный текст",
-      tooShort: "Выделено слишком мало — тут почти нечего сокращать",
-      ask: "Спросить о выделенном…",
-      search: "Выделено много — ищу ответ по частям",
+      title: "Selection summary",
+      essence: "Main point of the selection",
+      reading: "Reading the selection…",
+      parts: "The selection is long, reading it in parts",
+      partly: "Covers the beginning of the selection",
+      whole: "Covers the whole selection",
+      tooShort: "The selection is too short, almost nothing to summarize",
+      ask: "Ask about the selection…",
+      search: "The selection is long, searching for the answer in parts",
     },
     video: {
-      title: "Краткое содержание видео",
-      essence: "В чём суть видео",
-      loading: "Загружаю субтитры…",
-      reading: "Читаю субтитры…",
-      parts: "Видео длинное — читаю по частям",
-      partly: "Учтено начало видео",
-      whole: "Учтены все субтитры",
-      tooShort: "В субтитрах почти нет речи — сокращать нечего",
-      noCaptions: "У видео нет субтитров — сокращать нечего",
-      live: "Трансляции не поддерживаются",
-      ask: "Спросить о видео…",
-      search: "Видео длинное — ищу ответ по частям",
+      title: "Video summary",
+      essence: "Main point of the video",
+      loading: "Loading captions…",
+      reading: "Reading the captions…",
+      parts: "The video is long, reading it in parts",
+      partly: "Covers the beginning of the video",
+      whole: "Covers all the captions",
+      tooShort: "The captions have almost no speech, nothing to summarize",
+      noCaptions: "The video has no captions, nothing to summarize",
+      live: "Live streams aren't supported",
+      ask: "Ask about the video…",
+      search: "The video is long, searching for the answer in parts",
     },
   };
   // Ошибки субтитров (см. summary/background.js), после которых повтор не поможет: код → надпись
@@ -198,8 +198,8 @@
   // Ответ упёрся в num_ctx. У «Сути» он постоянный — настройки тут не помогут.
   function cutNote(mode) {
     return mode === "essence"
-      ? "Ответ обрезан: не хватило контекста модели"
-      : "Ответ обрезан: не хватило контекста модели (num_ctx в настройках)";
+      ? "Response cut off: the model ran out of context"
+      : "Response cut off: the model ran out of context (num_ctx in settings)";
   }
 
   // status — что идёт сейчас («Пишу…»); у готового ответа cut — он упёрся в num_ctx, thinkMs —
@@ -211,17 +211,17 @@
     if (sent) {
       parts.push(
         sent.used < sent.total
-          ? `${words.partly}: ${percent(sent.used, sent.total)}% текста`
+          ? `${words.partly}: ${percent(sent.used, sent.total)}% of the text`
           : words.whole,
       );
     }
     if (current.captions) {
       const { kind, lang } = current.captions;
-      parts.push(`Субтитры: ${kind === "asr" ? "автоматические" : "ручные"}, ${lang}`);
+      parts.push(`Captions: ${kind === "asr" ? "automatic" : "manual"}, ${lang}`);
     }
     const model = [];
-    if (sent?.model) model.push(`Модель: ${sent.model}`);
-    if (thinkMs !== undefined) model.push(`рассуждала ${Math.round(thinkMs / 1000)} с`);
+    if (sent?.model) model.push(`Model: ${sent.model}`);
+    if (thinkMs !== undefined) model.push(`reasoned for ${Math.round(thinkMs / 1000)} s`);
     const lines = [parts.join(" · "), model.join(" · ")];
     if (cut) lines.push(cutNote(current.mode));
     foot.replaceChildren(...lines.filter(Boolean).map((line) => el("div", null, line)));
@@ -256,7 +256,7 @@
   function messageNodes(className, text, onRetry) {
     const nodes = [el("div", className, text)];
     if (onRetry) {
-      const retry = el("button", "retry", "Повторить");
+      const retry = el("button", "retry", "Retry");
       retry.addEventListener("click", onRetry);
       nodes.push(retry);
     }
@@ -273,7 +273,7 @@
   }
 
   function showError(message, canRetry = true) {
-    showMessage("error", `Не получилось: ${message}`, canRetry);
+    showMessage("error", `Failed: ${message}`, canRetry);
     renderFoot();
   }
 
@@ -307,7 +307,7 @@
     const started = Date.now();
     const tick = () => {
       const seconds = Math.floor((Date.now() - started) / 1000);
-      showMessage("status", `Обдумываю… ${seconds} с`, false);
+      showMessage("status", `Thinking… ${seconds} s`, false);
     };
     tick();
     current.thinkTimer = setInterval(tick, 1000);
@@ -341,11 +341,11 @@
         onDisconnect: () => {
           state.conn = null;
           stopThinking();
-          showError("соединение с расширением прервалось");
+          showError("connection to the extension was lost");
         },
       });
     } catch {
-      showError("расширение перезагружено, обновите страницу", false);
+      showError("the extension was reloaded, reload the page", false);
       return;
     }
     const { title, text } = state.source;
@@ -377,7 +377,7 @@
     state.checked = false;
     state.heading.querySelector(".badge")?.remove();
     state.stale = new Set(MODES.map(([key]) => key));
-    showMessage("status", "Ответы забыты — выберите режим, и модель ответит заново", false);
+    showMessage("status", "Answers cleared. Choose a mode and the model will answer again", false);
     renderFoot();
   }
 
@@ -396,11 +396,11 @@
         onMessage: (msg) => onTranscript(state, msg),
         onDisconnect: () => {
           state.conn = null;
-          showError("соединение с расширением прервалось");
+          showError("connection to the extension was lost");
         },
       });
     } catch {
-      showError("расширение перезагружено, обновите страницу", false);
+      showError("the extension was reloaded, reload the page", false);
       return;
     }
     state.conn.post({ type: "transcript", videoId: state.videoId });
@@ -422,7 +422,7 @@
         break;
       case "stopped":
         stopPort();
-        showMessage("status", "Остановлено", true);
+        showMessage("status", "Stopped", true);
         break;
       case "error":
         stopPort();
@@ -430,7 +430,7 @@
           state.source = { title: "", text: "" }; // текста нет: ни длины, ни повтор не помогут
           showMessage("status", state.words[NO_TEXT[msg.code]], false);
         } else {
-          showError(msg.message ?? "неизвестная ошибка");
+          showError(msg.message ?? "unknown error");
         }
         break;
     }
@@ -438,9 +438,9 @@
 
   // длинный текст модель читает по частям — см. summary/background.js
   function progressText({ step, part, parts }) {
-    if (step === "part") return `${current.words.parts}: ${part} из ${parts}…`;
-    if (step === "merge") return "Свожу заметки по частям…";
-    return current.mode === "essence" ? "Ищу главную мысль…" : "Пишу краткое содержание…";
+    if (step === "part") return `${current.words.parts}: ${part} of ${parts}…`;
+    if (step === "merge") return "Merging notes from the parts…";
+    return current.mode === "essence" ? "Looking for the main point…" : "Writing the summary…";
   }
 
   function onMessage(state, mode, msg) {
@@ -457,7 +457,7 @@
       case "partial":
         stopThinking();
         renderText(msg.text);
-        renderFoot("Пишу…");
+        renderFoot("Writing…");
         break;
       case "result":
         stopPort();
@@ -472,12 +472,12 @@
         break;
       case "stopped":
         stopPort();
-        showMessage("status", "Остановлено", true);
+        showMessage("status", "Stopped", true);
         renderFoot();
         break;
       case "error":
         stopPort();
-        showError(msg.message ?? "неизвестная ошибка");
+        showError(msg.message ?? "unknown error");
         break;
     }
   }
@@ -518,9 +518,9 @@
     if (!result) return;
     const ok = await ns.copyText(format.plain(result.text), panel);
     copyBtn.focus();
-    copyBtn.textContent = ok ? "Скопировано" : "Не скопировалось";
+    copyBtn.textContent = ok ? "Copied" : "Couldn't copy";
     setTimeout(() => {
-      if (copyBtn.isConnected) copyBtn.textContent = "Копировать";
+      if (copyBtn.isConnected) copyBtn.textContent = "Copy";
     }, 1500);
   }
 
@@ -565,7 +565,7 @@
         stopCheck();
         current.checked = true;
         if (msg.clickbait) {
-          const badge = el("span", "badge", "Кликбейт!");
+          const badge = el("span", "badge", "Clickbait!");
           if (msg.reason) badge.title = String(msg.reason);
           current.heading.append(badge);
         }
@@ -618,19 +618,19 @@
   }
 
   function showAnswerError(turn, message, canRetry = true) {
-    showAnswerMessage(turn, "error", `Не получилось: ${message}`, canRetry);
+    showAnswerMessage(turn, "error", `Failed: ${message}`, canRetry);
   }
 
   // Под готовым ответом: сколько текста учтено, обрезан ли ответ.
   function answerNotes({ sent, cut, missed, mode }) {
     const notes = [];
     if (sent && sent.used < sent.total) {
-      notes.push(`${current.words.partly}: ${percent(sent.used, sent.total)}% текста`);
+      notes.push(`${current.words.partly}: ${percent(sent.used, sent.total)}% of the text`);
     }
     if (missed) {
       notes.push(
-        `Не учтено частей текста: ${missed.count} из ${missed.parts} — модель упёрлась в предел ` +
-          "длины ответа, ничего из них не выписав",
+        `Parts of the text not covered: ${missed.count} of ${missed.parts}. The model hit the ` +
+          "response length limit without extracting anything from them",
       );
     }
     if (cut) notes.push(cutNote(mode));
@@ -652,7 +652,7 @@
     const state = current;
     if (state.askConn) return; // идёт ответ на другой вопрос
     Object.assign(turn, { answer: null, cut: false, sent: null, missed: null, mode: state.mode });
-    showAnswerMessage(turn, "status", "Думаю…", false);
+    showAnswerMessage(turn, "status", "Thinking…", false);
     // после stopAsk() порт ничего не вызывает — ответ всегда к этому вопросу
     try {
       state.askConn = ns.connectPort(PORT_NAME, {
@@ -660,11 +660,11 @@
         onDisconnect: () => {
           state.askConn = null;
           syncAsk();
-          showAnswerError(turn, "соединение с расширением прервалось");
+          showAnswerError(turn, "connection to the extension was lost");
         },
       });
     } catch {
-      showAnswerError(turn, "расширение перезагружено, обновите страницу", false);
+      showAnswerError(turn, "the extension was reloaded, reload the page", false);
       return;
     }
     syncAsk();
@@ -683,8 +683,8 @@
 
   // длинный текст: поиск ответа по частям, потом ответ — см. summary/background.js
   function searchProgressText({ step, part, parts }) {
-    if (step === "search") return `${current.words.search}: ${part} из ${parts}…`;
-    return "Пишу ответ…";
+    if (step === "search") return `${current.words.search}: ${part} of ${parts}…`;
+    return "Writing the answer…";
   }
 
   function onAnswerMessage(turn, msg) {
@@ -709,11 +709,11 @@
         break;
       case "stopped":
         stopAsk();
-        showAnswerMessage(turn, "status", "Остановлено", true);
+        showAnswerMessage(turn, "status", "Stopped", true);
         break;
       case "error":
         stopAsk();
-        showAnswerError(turn, msg.message ?? "неизвестная ошибка");
+        showAnswerError(turn, msg.message ?? "unknown error");
         break;
     }
   }
@@ -784,7 +784,7 @@
     const headingText = el("span", null, words.title);
     heading.append(headingText);
     const closeBtn = el("button", "close", "×");
-    closeBtn.title = "Закрыть (Esc)";
+    closeBtn.title = "Close (Esc)";
     closeBtn.addEventListener("click", close);
     head.append(heading, closeBtn);
 
@@ -798,10 +798,10 @@
       modeBtns.set(key, btn);
       modes.append(btn);
     }
-    const resetBtn = el("button", null, "Сбросить");
-    resetBtn.title = "Забыть ответы и вопросы — например, чтобы спросить заново другой моделью";
+    const resetBtn = el("button", null, "Reset");
+    resetBtn.title = "Forget the answers and questions, e.g. to ask again with another model";
     resetBtn.addEventListener("click", () => reset());
-    const copyBtn = el("button", null, "Копировать");
+    const copyBtn = el("button", null, "Copy");
     copyBtn.hidden = true;
     copyBtn.addEventListener("click", () => copy());
     bar.append(modes, el("span", "spacer"), resetBtn, copyBtn);
@@ -832,7 +832,7 @@
         fitInput();
       }
     });
-    const askBtn = el("button", "send", "Спросить");
+    const askBtn = el("button", "send", "Ask");
     // фокус — в поле до отправки: кнопку на время ответа отключаем, и фокус с неё ушёл бы на
     // страницу
     askBtn.addEventListener("click", () => {

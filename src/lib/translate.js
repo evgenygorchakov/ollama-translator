@@ -91,7 +91,7 @@ export function toOllamaError(err) {
 // для одиночного запроса без JSON; singleViaBatch — одиночный сначала пробовать батчем из одного
 // (см. translateOne). По умолчанию — промпты перевода страниц из настроек.
 export async function createContext(settings, signal, prompts = settingsPrompts(settings)) {
-  if (!settings.model) throw new OllamaError(ErrorCode.MODEL_NOT_FOUND, "Модель не выбрана в popup");
+  if (!settings.model) throw new OllamaError(ErrorCode.MODEL_NOT_FOUND, "No model selected in the popup");
   return {
     baseUrl: settings.ollamaUrl,
     model: settings.model,
@@ -135,7 +135,7 @@ export async function chatWithRetry(body, ctx, { onContent, onThinking } = {}) {
 function checked(original, translation, { acceptUnchanged = false, final = false } = {}) {
   if (isBadTranslation(original, translation)) {
     if (acceptUnchanged && translation.trim()) return { text: translation };
-    return { error: { code: ErrorCode.BAD_RESPONSE, message: "Модель вернула пустой или непереведённый текст" } };
+    return { error: { code: ErrorCode.BAD_RESPONSE, message: "The model returned empty or untranslated text" } };
   }
   if (hasTags(original) && !sameTags(original, translation)) {
     const closed = final ? closeTags(original, translation) : null;
@@ -146,7 +146,7 @@ function checked(original, translation, { acceptUnchanged = false, final = false
       translation,
     );
     if (final) return { text: closed ?? translation };
-    return { error: { code: ErrorCode.BAD_RESPONSE, message: "Модель испортила разметку абзаца" } };
+    return { error: { code: ErrorCode.BAD_RESPONSE, message: "The model broke the paragraph markup" } };
   }
   return { text: translation };
 }
@@ -157,7 +157,7 @@ function truncated() {
   return {
     error: {
       code: ErrorCode.BAD_RESPONSE,
-      message: "Перевод обрезан: не хватило контекста модели (num_ctx в настройках)",
+      message: "Translation cut off: the model ran out of context (num_ctx in settings)",
     },
   };
 }

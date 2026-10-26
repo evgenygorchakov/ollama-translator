@@ -378,7 +378,7 @@ chrome.commands.onCommand.addListener((command, tab) => {
 chrome.runtime.onInstalled.addListener(() => {
   ensureMenu({
     id: "toggle-translation",
-    title: "Перевести страницу / показать оригинал",
+    title: "Translate page / show original",
     contexts: ["page"],
   });
 });

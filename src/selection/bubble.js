@@ -138,7 +138,7 @@
 
   // canRetry: false — повтор не поможет (текст слишком длинный, расширение перезагружено)
   function showError(message, canRetry = true) {
-    showMessage("error", `Перевод не удался: ${message}`, canRetry);
+    showMessage("error", `Translation failed: ${message}`, canRetry);
   }
 
   function showMessage(className, text, canRetry) {
@@ -146,7 +146,7 @@
     if (canRetry) {
       const retry = document.createElement("button");
       retry.className = "retry";
-      retry.textContent = "Повторить";
+      retry.textContent = "Retry";
       retry.addEventListener("click", translate);
       current.body.append(retry);
     }
@@ -161,7 +161,7 @@
   function translate() {
     const state = current;
     stopPort();
-    setBody("status", "Перевожу…");
+    setBody("status", "Translating…");
     place();
     // после stopPort() порт ничего не вызывает — ответ всегда к этому state
     try {
@@ -169,16 +169,16 @@
         onMessage: (msg) => {
           stopPort();
           if (msg?.type === "result") showResult(msg.text);
-          else if (msg?.type === "stopped") showMessage("status", "Перевод остановлен", true);
-          else showError(msg?.message ?? "неизвестная ошибка", msg?.code !== "TEXT_TOO_LONG");
+          else if (msg?.type === "stopped") showMessage("status", "Translation stopped", true);
+          else showError(msg?.message ?? "unknown error", msg?.code !== "TEXT_TOO_LONG");
         },
         onDisconnect: () => {
           state.conn = null;
-          showError("соединение с расширением прервалось");
+          showError("connection to the extension was lost");
         },
       });
     } catch {
-      showError("расширение перезагружено, обновите страницу", false);
+      showError("the extension was reloaded, reload the page", false);
       return;
     }
     state.conn.post({ type: "translate", text: state.text }); // порт мёртв — onDisconnect покажет ошибку
@@ -188,9 +188,9 @@
     const { translation, copyBtn, box } = current;
     const ok = await ns.copyText(translation, box);
     copyBtn.focus();
-    copyBtn.textContent = ok ? "Скопировано" : "Не скопировалось";
+    copyBtn.textContent = ok ? "Copied" : "Couldn't copy";
     setTimeout(() => {
-      if (copyBtn.isConnected) copyBtn.textContent = "Копировать";
+      if (copyBtn.isConnected) copyBtn.textContent = "Copy";
     }, 1500);
   }
 
@@ -253,21 +253,21 @@
     const box = document.createElement("div");
     box.className = "box";
     box.setAttribute("role", "dialog");
-    box.setAttribute("aria-label", "Перевод выделенного");
+    box.setAttribute("aria-label", "Selection translation");
 
     const head = document.createElement("div");
     head.className = "head";
     const title = document.createElement("span");
     title.className = "title";
-    title.textContent = "Перевод";
+    title.textContent = "Translation";
     const copyBtn = document.createElement("button");
-    copyBtn.textContent = "Копировать";
+    copyBtn.textContent = "Copy";
     copyBtn.hidden = true;
     copyBtn.addEventListener("click", () => copy());
     const closeBtn = document.createElement("button");
     closeBtn.className = "close";
     closeBtn.textContent = "×";
-    closeBtn.title = "Закрыть (Esc)";
+    closeBtn.title = "Close (Esc)";
     closeBtn.addEventListener("click", close);
     head.append(title, copyBtn, closeBtn);
 
@@ -300,11 +300,11 @@
       current.closeBtn.focus({ preventScroll: true });
     }
     if (!text) {
-      setBody("error", "Не нашёл выделенного текста");
+      setBody("error", "No selected text found");
       place();
     } else if (text.length > maxChars) {
       // без «Повторить»: повтор не поможет
-      setBody("error", `Выделено слишком много: ${text.length} символов, максимум ${maxChars}`);
+      setBody("error", `Too much text selected: ${text.length} characters, maximum ${maxChars}`);
       place();
     } else {
       translate();

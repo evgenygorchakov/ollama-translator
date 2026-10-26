@@ -15,14 +15,14 @@ const SAMPLE_TEXT = "Привет! Так будет звучать озвучк
 
 // Голоса v5_5_ru. Если сервер назовёт другие, покажем просто имя.
 const VOICE_LABELS = {
-  aidar: "aidar — мужской",
-  eugene: "eugene — мужской",
-  baya: "baya — женский",
-  kseniya: "kseniya — женский",
-  xenia: "xenia — женский",
+  aidar: "aidar — male",
+  eugene: "eugene — male",
+  baya: "baya — female",
+  kseniya: "kseniya — female",
+  xenia: "xenia — female",
 };
 
-const number = (v, digits) => v.toLocaleString("ru-RU", { maximumFractionDigits: digits });
+const number = (v, digits) => v.toLocaleString("en-US", { maximumFractionDigits: digits });
 
 let settings;
 let server = null; // { voices, defaultVoice, rates } — последний ответ Silero
@@ -41,11 +41,11 @@ function renderVoices(selected) {
   const voices = server?.voices ?? [];
   const fallback = server?.defaultVoice;
   const options = [
-    new Option(fallback ? `По умолчанию сервера (${voiceLabel(fallback)})` : "По умолчанию сервера", ""),
+    new Option(fallback ? `Server default (${voiceLabel(fallback)})` : "Server default", ""),
     ...voices.map((v) => new Option(voiceLabel(v), v)),
   ];
   if (selected && !voices.includes(selected)) {
-    options.push(new Option(server ? `${selected} (нет на сервере)` : selected, selected));
+    options.push(new Option(server ? `${selected} (not on the server)` : selected, selected));
   }
   $("dubVoice").replaceChildren(...options);
   $("dubVoice").value = selected;
@@ -80,7 +80,7 @@ function errorText(err) {
 async function prepareUrl(prefix = "") {
   const url = parseServerUrl($("dubTtsUrl").value);
   if (!url) {
-    setStatus("dub-status", "error", `${prefix}Адрес должен быть вида http://127.0.0.1:5011`);
+    setStatus("dub-status", "error", `${prefix}The address must look like http://127.0.0.1:5011`);
     return null;
   }
   let granted = false;
@@ -90,22 +90,22 @@ async function prepareUrl(prefix = "") {
     console.error(err);
   }
   if (!granted) {
-    setStatus("dub-status", "error", `${prefix}Нет разрешения на доступ к ${url.origin}`);
+    setStatus("dub-status", "error", `${prefix}No permission to access ${url.origin}`);
     return null;
   }
   return url;
 }
 
 async function checkSilero(baseUrl) {
-  setStatus("dub-status", "checking", "Проверяю Silero…");
+  setStatus("dub-status", "checking", "Checking Silero…");
   $("dubCheck").disabled = true;
   try {
     const [health, voices] = await Promise.all([getHealth(baseUrl), getVoices(baseUrl)]);
     server = voices;
     renderVoices($("dubVoice").value);
-    const summary = `Silero ${health.model} · голосов: ${voices.voices.length}`;
+    const summary = `Silero ${health.model} · voices: ${voices.voices.length}`;
     if (voices.rates.length) setStatus("dub-status", "ok", summary);
-    else setStatus("dub-status", "warn", `${summary} · старая версия server.py: темп речи не меняется`);
+    else setStatus("dub-status", "warn", `${summary} · old server.py: speech rate can't be changed`);
   } catch (err) {
     console.error(err);
     server = null;
@@ -135,20 +135,20 @@ async function play(wav) {
 async function listen(baseUrl) {
   const voice = $("dubVoice").value;
   stopPlayer();
-  setStatus("dub-listen-status", "checking", "Синтезирую фразу…");
+  setStatus("dub-listen-status", "checking", "Synthesizing a phrase…");
   $("dubListen").disabled = true;
   try {
     const startedAt = performance.now();
     const wav = await synthesize(baseUrl, { text: SAMPLE_TEXT, voice });
     const took = (performance.now() - startedAt) / 1000;
-    if (!wav) throw new Error("Silero не озвучил фразу: пустой ответ");
+    if (!wav) throw new Error("Silero didn't voice the phrase: empty response");
     const duration = wavDuration(wav);
     await play(wav);
-    const name = voice || server?.defaultVoice || "по умолчанию";
+    const name = voice || server?.defaultVoice || "default";
     setStatus(
       "dub-listen-status",
       "ok",
-      `Голос ${name}: ${number(duration, 1)} с речи, синтез за ${number(took, 2)} с`,
+      `Voice ${name}: ${number(duration, 1)} s of speech, synthesized in ${number(took, 2)} s`,
     );
   } catch (err) {
     console.error(err);
@@ -173,7 +173,7 @@ $("dubListen").addEventListener("click", async () => {
 // Ту же форму сохраняет options.js — свои поля, а этот обработчик — поля озвучки.
 $("form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const url = await prepareUrl("Озвучка не сохранена. ");
+  const url = await prepareUrl("Dubbing settings not saved. ");
   if (!url) return;
   const patch = Object.fromEntries(
     Object.entries(readForm()).filter(([key, value]) => value !== settings[key]),
@@ -183,7 +183,7 @@ $("form").addEventListener("submit", async (e) => {
     settings = await getDubSettings();
   } catch (err) {
     console.error(err);
-    setStatus("dub-status", "error", `Озвучка не сохранена: ${err.message}`);
+    setStatus("dub-status", "error", `Dubbing settings not saved: ${err.message}`);
     return;
   }
   fill(settings); // показываем значения после проверки

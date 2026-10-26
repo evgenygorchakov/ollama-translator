@@ -193,7 +193,7 @@
     const span = ensureSpan(seg, true);
     span.className = "ot-tr ot-error";
     span.textContent = "⚠";
-    span.title = `Перевод не удался: ${message}\nНажмите, чтобы повторить`;
+    span.title = `Translation failed: ${message}\nClick to retry`;
     span.onclick = (e) => {
       // блок может быть ссылкой или кнопкой — клик не должен уходить дальше
       e.preventDefault();

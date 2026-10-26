@@ -1,57 +1,58 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ollama Translator — настройки</title>
+    <title>Ollama Translator — Settings</title>
     <link rel="stylesheet" href="options.css" />
     <script type="module" src="options.js"></script>
     <script type="module" src="../dub/options.js"></script>
   </head>
   <body>
     <main>
-      <h1>Ollama Translator — настройки</h1>
+      <h1>Ollama Translator — Settings</h1>
 
       <form id="form" novalidate>
         <section>
           <h2>Ollama</h2>
           <div class="field">
-            <label for="ollamaUrl">Адрес Ollama</label>
+            <label for="ollamaUrl">Ollama address</label>
             <div class="row">
               <input id="ollamaUrl" type="url" placeholder="http://127.0.0.1:11434" spellcheck="false" />
-              <button id="check" type="button">Проверить</button>
+              <button id="check" type="button">Check</button>
             </div>
             <small class="help">
-              Для Ollama на другом компьютере расширение попросит разрешение на этот адрес.
-              Там тоже нужен <code>OLLAMA_ORIGINS=chrome-extension://*,moz-extension://*</code>.
+              For Ollama on another computer the extension will ask for permission to access this
+              address. That Ollama also needs
+              <code>OLLAMA_ORIGINS=chrome-extension://*,moz-extension://*</code>.
             </small>
           </div>
           <p id="ollama-status" class="status" data-kind="checking"></p>
 
           <label class="field">
-            <span>Модель</span>
+            <span>Model</span>
             <select id="model"></select>
           </label>
 
           <label class="field">
-            <span>Язык перевода</span>
+            <span>Translation language</span>
             <select id="targetLang"></select>
           </label>
         </section>
 
         <section>
-          <h2>Запросы</h2>
+          <h2>Requests</h2>
           <div class="grid">
             <label class="field">
-              <span>Фрагментов в батче</span>
+              <span>Fragments per batch</span>
               <input id="batchMaxItems" type="number" />
             </label>
             <label class="field">
-              <span>Символов в батче</span>
+              <span>Characters per batch</span>
               <input id="batchMaxChars" type="number" />
             </label>
             <label class="field">
-              <span>Параллельных запросов</span>
+              <span>Parallel requests</span>
               <input id="concurrency" type="number" />
             </label>
             <label class="field">
@@ -59,59 +60,60 @@
               <input id="temperature" type="number" />
             </label>
             <label class="field">
-              <span>Контекст (num_ctx)</span>
+              <span>Context (num_ctx)</span>
               <input id="numCtx" type="number" />
             </label>
           </div>
           <small class="help">
-            Параллельность больше 1 имеет смысл, только если модель целиком в VRAM
-            (<code>ollama ps</code> → 100% GPU) и задан <code>OLLAMA_NUM_PARALLEL</code>.
+            More than 1 parallel request only helps if the model fits entirely in VRAM
+            (<code>ollama ps</code> → 100% GPU) and <code>OLLAMA_NUM_PARALLEL</code> is set.
           </small>
         </section>
 
         <details>
-          <summary>Продвинутое: свой system prompt</summary>
+          <summary>Advanced: custom system prompt</summary>
           <p class="help">
-            Пусто — встроенный промпт (показан серым). <code>{targetLang}</code> заменяется на
-            название языка. Модель обязана вернуть JSON <code>{"translations": [...]}</code> —
-            формат ответа задаётся схемой, но в промпте его лучше тоже упомянуть.
+            Leave empty for the built-in prompt (shown in gray). <code>{targetLang}</code> is
+            replaced with the language name. The model must return JSON
+            <code>{"translations": [...]}</code>: the response format is enforced by a schema,
+            but it is better to mention it in the prompt too.
           </p>
           <textarea id="systemPrompt" rows="8" spellcheck="false"></textarea>
         </details>
 
         <section>
-          <h2>Озвучка видео</h2>
+          <h2>Video dubbing</h2>
           <div class="field">
-            <label for="dubTtsUrl">Адрес Silero</label>
+            <label for="dubTtsUrl">Silero address</label>
             <div class="row">
               <input id="dubTtsUrl" type="url" placeholder="http://127.0.0.1:5011" spellcheck="false" />
-              <button id="dubCheck" type="button">Проверить</button>
+              <button id="dubCheck" type="button">Check</button>
             </div>
             <small class="help">
-              Сервер синтеза речи: на Windows — <code>tools/silero</code>, на Linux — systemd-сервис
-              из <code>sup/optional/voice</code>. Озвучка всегда на русском, язык перевода на неё
-              не влияет.
+              Speech synthesis server: <code>tools/silero</code> on Windows, the systemd service
+              from <code>sup/optional/voice</code> on Linux. Dubbing is always in Russian, the
+              translation language doesn't affect it.
             </small>
           </div>
           <p id="dub-status" class="status" data-kind="checking"></p>
 
           <div class="field">
-            <label for="dubVoice">Голос</label>
+            <label for="dubVoice">Voice</label>
             <div class="row">
               <select id="dubVoice"></select>
-              <button id="dubListen" type="button">▶ Прослушать</button>
+              <button id="dubListen" type="button">▶ Listen</button>
             </div>
           </div>
           <p id="dub-listen-status" class="status"></p>
           <small class="help">
-            Громкость оригинала, ускорение речи и русские субтитры — в меню рядом с кнопкой
-            «Перевести» в плеере YouTube.
+            Original volume, speech speed-up and Russian subtitles are in the menu next to the
+            “Translate” button in the YouTube player.
           </small>
         </section>
 
         <div class="actions">
-          <button id="save" class="primary" type="submit">Сохранить</button>
-          <button id="reset" type="button">Сбросить настройки</button>
+          <button id="save" class="primary" type="submit">Save</button>
+          <button id="reset" type="button">Reset settings</button>
           <span id="save-status" class="muted" role="status"></span>
         </div>
       </form>

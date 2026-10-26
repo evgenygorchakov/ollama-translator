@@ -49,27 +49,27 @@ chrome.runtime.getPlatformInfo().then(
 
 // Ошибки pageCaptions: message — на кнопке, detail — подсказка при наведении.
 const CAPTION_ERRORS = {
-  NO_PLAYER: { message: "Плеер YouTube не найден" },
-  NOT_READY: { message: "Плеер ещё не загрузил видео", detail: "Подождите пару секунд" },
-  LIVE: { message: "Трансляции не поддерживаются" },
-  NO_CAPTIONS: { message: "Нет английских субтитров" },
-  NO_TOKEN: { message: "YouTube не отдал субтитры", detail: "Плеер не запросил субтитры с токеном" },
-  EMPTY: { message: "YouTube не отдал субтитры", detail: "Пустой ответ и с токеном" },
-  FAILED: { message: "Субтитры не загрузились" },
+  NO_PLAYER: { message: "YouTube player not found" },
+  NOT_READY: { message: "The player hasn't loaded the video yet", detail: "Wait a couple of seconds" },
+  LIVE: { message: "Live streams aren't supported" },
+  NO_CAPTIONS: { message: "No English captions" },
+  NO_TOKEN: { message: "YouTube didn't return captions", detail: "The player didn't request captions with a token" },
+  EMPTY: { message: "YouTube didn't return captions", detail: "Empty response even with a token" },
+  FAILED: { message: "Captions failed to load" },
 };
 
 // Ошибки Ollama на кнопке; подробности — в подсказке.
 const OLLAMA_ERRORS = {
-  [ErrorCode.OLLAMA_DOWN]: "Ollama не отвечает",
-  [ErrorCode.MODEL_NOT_FOUND]: "Выберите модель в popup",
-  [ErrorCode.FORBIDDEN_ORIGIN]: "Ollama не пускает расширение",
+  [ErrorCode.OLLAMA_DOWN]: "Ollama isn't responding",
+  [ErrorCode.MODEL_NOT_FOUND]: "Choose a model in the popup",
+  [ErrorCode.FORBIDDEN_ORIGIN]: "Ollama blocks the extension",
 };
 
 // Ошибки Silero на кнопке; подробности — в подсказке.
 const TTS_ERRORS = {
-  [TtsErrorCode.TTS_DOWN]: "Silero не отвечает",
-  [TtsErrorCode.VOICE_NOT_FOUND]: "Голос не найден в Silero",
-  [TtsErrorCode.BAD_RESPONSE]: "Silero не озвучивает",
+  [TtsErrorCode.TTS_DOWN]: "Silero isn't responding",
+  [TtsErrorCode.VOICE_NOT_FOUND]: "Voice not found in Silero",
+  [TtsErrorCode.BAD_RESPONSE]: "Silero can't synthesize speech",
 };
 
 class DubError extends Error {
@@ -90,7 +90,7 @@ async function loadPhrases(tabId, frameId, videoId) {
       func: pageCaptions,
       args: [videoId, "en"],
     });
-    r = injection?.result ?? { error: "FAILED", detail: "скрипт на странице не ответил" };
+    r = injection?.result ?? { error: "FAILED", detail: "the page script didn't respond" };
   } catch (err) {
     r = { error: "FAILED", detail: err.message };
   }
@@ -340,7 +340,7 @@ function lengthOf(wav) {
   try {
     return wavDuration(wav);
   } catch (err) {
-    throw new TtsError(TtsErrorCode.BAD_RESPONSE, `Silero прислал не wav: ${err.message}`);
+    throw new TtsError(TtsErrorCode.BAD_RESPONSE, `Silero sent something other than wav: ${err.message}`);
   }
 }
 
@@ -358,16 +358,16 @@ function fail(session, err) {
     console.warn("[ot] озвучка: синтез остановлен:", err.message);
     const hints = {
       [TtsErrorCode.TTS_DOWN]: startHint(os),
-      [TtsErrorCode.VOICE_NOT_FOUND]: "Выберите голос в настройках расширения",
+      [TtsErrorCode.VOICE_NOT_FOUND]: "Choose a voice in the extension settings",
     };
-    const message = TTS_ERRORS[err.code] ?? "Синтез не удался";
+    const message = TTS_ERRORS[err.code] ?? "Synthesis failed";
     const detail = [err.message, hints[err.code]].filter(Boolean).join("\n");
     safePost(session.port, { type: "error", code: err.code, message, detail });
     return;
   }
   const e = toOllamaError(err);
   console.warn("[ot] озвучка: перевод остановлен:", e.message);
-  const message = OLLAMA_ERRORS[e.code] ?? "Перевод не удался";
+  const message = OLLAMA_ERRORS[e.code] ?? "Translation failed";
   safePost(session.port, { type: "error", code: e.code, message, detail: e.message });
 }
 

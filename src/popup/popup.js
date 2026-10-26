@@ -34,14 +34,14 @@ let acting = false; // идёт переключение, «Продолжить
 
 const HINTS = {
   [ErrorCode.OLLAMA_DOWN]: {
-    text: "Запустите Ollama (Windows — из меню «Пуск», Linux — systemctl) и нажмите ⟳.",
+    text: "Start Ollama (Windows: from the Start menu, Linux: systemctl) and press ⟳.",
   },
   [ErrorCode.FORBIDDEN_ORIGIN]: {
-    text: "Ollama не пускает запросы расширений. Задайте переменную окружения и перезапустите Ollama:",
+    text: "Ollama rejects requests from extensions. Set this environment variable and restart Ollama:",
     code: "OLLAMA_ORIGINS=chrome-extension://*,moz-extension://*",
   },
   [ErrorCode.BAD_RESPONSE]: {
-    text: "Ollama ответила неожиданно. Подробности — в консоли popup.",
+    text: "Unexpected response from Ollama. See the popup console for details.",
   },
 };
 
@@ -61,7 +61,7 @@ function updateButtons() {
   const active = Boolean(pageState?.active);
   const paused = active && Boolean(pageState.paused);
   els.translate.hidden = active && !paused;
-  els.translate.textContent = paused ? "▶ Продолжить" : "Перевести страницу";
+  els.translate.textContent = paused ? "▶ Resume" : "Translate page";
   // вернуть оригинал можно всегда, переводить — только когда Ollama и модель в порядке
   els.translate.disabled = acting || els.status.dataset.kind !== "ok";
   els.original.hidden = !active;
@@ -76,10 +76,10 @@ function renderProgress() {
   if (!s?.active) return;
   // на паузе ожидавшие перевода фрагменты снова ждут прокрутки — считаем от всех на странице
   const parts = s.paused
-    ? [`Остановлено · переведено ${s.done} из ${s.total}`]
-    : [`Переведено ${s.done} из ${s.requested}`];
-  if (s.errors) parts.push(`ошибок: ${s.errors}`);
-  if (!s.paused) parts.push(`всего на странице: ${s.total}`);
+    ? [`Stopped · translated ${s.done} of ${s.total}`]
+    : [`Translated ${s.done} of ${s.requested}`];
+  if (s.errors) parts.push(`errors: ${s.errors}`);
+  if (!s.paused) parts.push(`on the page: ${s.total}`);
   els.progress.textContent = parts.join(" · ");
 }
 
@@ -117,15 +117,15 @@ function renderModels() {
 
 function updateModelStatus() {
   if (models.length === 0) {
-    setStatus("warn", `Ollama ${version} работает, но моделей нет`, {
-      text: "Скачайте модель, например:",
+    setStatus("warn", `Ollama ${version} is running, but has no models`, {
+      text: "Pull a model, for example:",
       code: "ollama pull qwen3:8b",
     });
   } else if (!settings.model) {
-    setStatus("warn", `Ollama ${version} · выберите модель`);
+    setStatus("warn", `Ollama ${version} · choose a model`);
   } else if (!models.some((m) => m.name === settings.model)) {
-    setStatus("error", `Модель ${settings.model} не найдена`, {
-      text: "Выберите другую модель или скачайте эту:",
+    setStatus("error", `Model ${settings.model} not found`, {
+      text: "Choose another model or pull this one:",
       code: `ollama pull ${settings.model}`,
     });
   } else {
@@ -145,7 +145,7 @@ async function warmUpUnlessStopped() {
 async function check() {
   els.refresh.disabled = true;
   els.model.disabled = true;
-  setStatus("checking", "Проверяю Ollama…");
+  setStatus("checking", "Checking Ollama…");
   try {
     [version, models] = await Promise.all([
       getVersion(settings.ollamaUrl),
@@ -202,15 +202,15 @@ async function askBackground(message) {
 
 // Внедрение и переключение делает background — так же, как для хоткея и контекстного меню.
 const togglePage = () =>
-  act(() => askBackground({ type: "toggleTab", tabId }), "Не удалось перевести эту страницу");
+  act(() => askBackground({ type: "toggleTab", tabId }), "Couldn't translate this page");
 
 // На паузе content script уже внедрён — просим его продолжить напрямую.
 const resumePage = () =>
-  act(() => chrome.tabs.sendMessage(tabId, { type: "resume" }), "Не удалось продолжить перевод");
+  act(() => chrome.tabs.sendMessage(tabId, { type: "resume" }), "Couldn't resume translation");
 
 // Обрывает все запросы к модели на всех вкладках и выгружает её из памяти (background.js).
 // Запросы обрываются всегда, ошибкой может закончиться только выгрузка.
-const stopAll = () => act(() => askBackground({ type: "stopAll" }), "Модель не выгружена");
+const stopAll = () => act(() => askBackground({ type: "stopAll" }), "Model not unloaded");
 
 els.translate.addEventListener("click", () => (pageState?.paused ? resumePage() : togglePage()));
 els.original.addEventListener("click", togglePage);

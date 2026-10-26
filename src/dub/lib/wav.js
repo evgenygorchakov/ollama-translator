@@ -9,7 +9,7 @@ export function wavDuration(buffer) {
   const bytes = new Uint8Array(buffer);
   const view = new DataView(buffer);
   if (bytes.length < 12 || tag(bytes, 0) !== "RIFF" || tag(bytes, 8) !== "WAVE") {
-    throw new Error("Это не wav: нет заголовка RIFF/WAVE");
+    throw new Error("Not a wav: no RIFF/WAVE header");
   }
   let byteRate = 0;
   for (let offset = 12; offset + 8 <= bytes.length; ) {
@@ -19,11 +19,11 @@ export function wavDuration(buffer) {
     if (id === "fmt " && size >= 16 && body + 16 <= bytes.length) {
       byteRate = view.getUint32(body + 8, true);
     } else if (id === "data") {
-      if (!byteRate) throw new Error("В wav нет формата звука до данных");
+      if (!byteRate) throw new Error("The wav has no audio format before its data");
       // размер может быть больше файла: обрезанный файл или запись потоком (0xFFFFFFFF)
       return Math.min(size, bytes.length - body) / byteRate;
     }
     offset = body + size + (size & 1); // чанки выровнены по чётному байту
   }
-  throw new Error("В wav нет звука (чанка data)");
+  throw new Error("The wav has no audio (data chunk)");
 }

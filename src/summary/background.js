@@ -70,10 +70,10 @@ const PORT_NAME = "summary";
 // Пункты контекстного меню: selection — о выделенном, иначе о странице (на странице видео — о
 // видео); mode — режим панели, "" — последняя длина краткого содержания (см. open в panel.js).
 const MENUS = {
-  "summarize-page": { title: "Краткое содержание страницы", selection: false, mode: "" },
-  "summarize-selection": { title: "Кратко о выделенном", selection: true, mode: "" },
-  "essence-page": { title: "В чём суть страницы", selection: false, mode: "essence" },
-  "essence-selection": { title: "В чём суть выделенного", selection: true, mode: "essence" },
+  "summarize-page": { title: "Summarize page", selection: false, mode: "" },
+  "summarize-selection": { title: "Summarize selection", selection: true, mode: "" },
+  "essence-page": { title: "Main point of the page", selection: false, mode: "essence" },
+  "essence-selection": { title: "Main point of the selection", selection: true, mode: "essence" },
 };
 const PANEL_SCRIPTS = [
   "src/shared/keepalive-port.js",
@@ -93,13 +93,13 @@ const NOTES_CACHE_SIZE = 6;
 
 // Ошибки pageCaptions — для «Не получилось: …». NO_CAPTIONS и LIVE панель пишет по-своему.
 const CAPTION_ERRORS = {
-  NO_PLAYER: "плеер YouTube не найден",
-  NOT_READY: "плеер ещё не загрузил видео, подождите пару секунд",
-  LIVE: "трансляции не поддерживаются",
-  NO_CAPTIONS: "у видео нет субтитров",
-  NO_TOKEN: "YouTube не отдал субтитры: плеер не запросил их с токеном",
-  EMPTY: "YouTube не отдал субтитры: пустой ответ и с токеном",
-  FAILED: "субтитры не загрузились",
+  NO_PLAYER: "YouTube player not found",
+  NOT_READY: "the player hasn't loaded the video yet, wait a couple of seconds",
+  LIVE: "live streams aren't supported",
+  NO_CAPTIONS: "the video has no captions",
+  NO_TOKEN: "YouTube didn't return captions: the player didn't request them with a token",
+  EMPTY: "YouTube didn't return captions: empty response even with a token",
+  FAILED: "captions failed to load",
 };
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -144,7 +144,7 @@ async function openPanel(tabId, source = { kind: "page" }, mode = "") {
   };
   if (await tryOpen()) return;
   await chrome.scripting.executeScript({ target, files: PANEL_SCRIPTS });
-  if (!(await tryOpen())) throw new Error("панель не запустилась");
+  if (!(await tryOpen())) throw new Error("the panel didn't start");
 }
 
 // Выделенное со страницы, во фрейме выделения: в тексте из меню Chrome теряет переносы строк.
@@ -237,7 +237,7 @@ async function transcript(tabId, videoId) {
       func: pageCaptions,
       args: [videoId, null],
     });
-    r = injection?.result ?? { error: "FAILED", detail: "скрипт на странице не ответил" };
+    r = injection?.result ?? { error: "FAILED", detail: "the page script didn't respond" };
   } catch (err) {
     r = { error: "FAILED", detail: err.message };
   }
@@ -404,12 +404,12 @@ async function complete(job, build, { numCtx, model, fixedCtx = false }) {
     const cut = doneReason === "length";
     // пусто и обрезано — модель упёрлась в num_ctx, ещё рассуждая
     if (!content.trim()) {
-      const hint = fixedCtx ? "" : " (num_ctx в настройках)";
+      const hint = fixedCtx ? "" : " (num_ctx in settings)";
       const message = !cut
-        ? "модель вернула пустой ответ"
+        ? "the model returned an empty response"
         : thinking
-          ? "модель рассуждала, пока не кончился контекст"
-          : `ответ обрезан: не хватило контекста модели${hint}`;
+          ? "the model kept reasoning until it ran out of context"
+          : `response cut off: the model ran out of context${hint}`;
       throw new OllamaError(ErrorCode.BAD_RESPONSE, message);
     }
     const text = content.trim();
@@ -515,8 +515,8 @@ async function answer(job, { text, title, kind, question, summary, history, mode
   if (found && !found.text && found.missed) {
     throw new OllamaError(
       ErrorCode.BAD_RESPONSE,
-      "модель не успела ничего выписать из частей текста: упиралась в предел длины ответа, " +
-        "видимо, рассуждая",
+      "the model extracted nothing from the parts of the text: it kept hitting the response " +
+        "length limit, apparently while reasoning",
     );
   }
   const source = found ? found.text : used;
@@ -556,7 +556,7 @@ async function clickbait(job, { text, title, length, summary, model: summaryMode
     { numCtx, model },
   );
   const verdict = clickbaitOf(content);
-  if (!verdict) throw new OllamaError(ErrorCode.BAD_RESPONSE, "модель ответила не по схеме");
+  if (!verdict) throw new OllamaError(ErrorCode.BAD_RESPONSE, "the model's response didn't match the schema");
   const reason = [verdict.claim, verdict.delivered].filter(Boolean).join("\n");
   console.debug(`[ot] кликбейт «${title}»: ${verdict.clickbait ? "да" : "нет"}\n${reason}`);
   return { clickbait: verdict.clickbait, reason };

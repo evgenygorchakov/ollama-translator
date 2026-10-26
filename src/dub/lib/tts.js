@@ -19,9 +19,9 @@ export class TtsError extends Error {
 // Как запустить сервер, если он не отвечает. os — из chrome.runtime.getPlatformInfo().
 export function startHint(os) {
   return os === "win"
-    ? 'Запустите его: Start-ScheduledTask "Silero TTS" в PowerShell или tools/silero/silero-serve.cmd. ' +
-        "Установка — tools/silero/README.md"
-    : "Запустите его: systemctl --user start silero. Установка — sup/optional/voice/README.md";
+    ? 'Start it: Start-ScheduledTask "Silero TTS" in PowerShell or tools/silero/silero-serve.cmd. ' +
+        "Setup: tools/silero/README.md"
+    : "Start it: systemctl --user start silero. Setup: sup/optional/voice/README.md";
 }
 
 // Синтез — около 0,1 с на фразу, но сервер однопоточный: запрос может ждать чужой.
@@ -30,16 +30,16 @@ const INFO_TIMEOUT_MS = 5_000;
 
 function toNetworkError(err, baseUrl) {
   if (err?.name === "TimeoutError") {
-    return new TtsError(TtsErrorCode.TTS_DOWN, `Silero не ответил вовремя (${baseUrl})`);
+    return new TtsError(TtsErrorCode.TTS_DOWN, `Silero didn't respond in time (${baseUrl})`);
   }
   if (err?.name === "AbortError") {
-    return new TtsError(TtsErrorCode.ABORTED, "Запрос отменён");
+    return new TtsError(TtsErrorCode.ABORTED, "Request cancelled");
   }
-  return new TtsError(TtsErrorCode.TTS_DOWN, `Silero не отвечает (${baseUrl})`);
+  return new TtsError(TtsErrorCode.TTS_DOWN, `Silero isn't responding (${baseUrl})`);
 }
 
 function notSilero(baseUrl, detail = "") {
-  return new TtsError(TtsErrorCode.BAD_RESPONSE, `По адресу ${baseUrl} ответил не Silero${detail}`);
+  return new TtsError(TtsErrorCode.BAD_RESPONSE, `The server at ${baseUrl} is not Silero${detail}`);
 }
 
 async function toHttpError(res, baseUrl) {

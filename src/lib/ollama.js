@@ -19,7 +19,7 @@ export class OllamaError extends Error {
 }
 
 export function abortedError() {
-  return new OllamaError(ErrorCode.ABORTED, "Запрос отменён");
+  return new OllamaError(ErrorCode.ABORTED, "Request cancelled");
 }
 
 function withTimeout(signal, timeoutMs) {
@@ -30,12 +30,12 @@ function withTimeout(signal, timeoutMs) {
 
 function toNetworkError(err, baseUrl) {
   if (err?.name === "TimeoutError") {
-    return new OllamaError(ErrorCode.OLLAMA_DOWN, `Ollama не ответила вовремя (${baseUrl})`);
+    return new OllamaError(ErrorCode.OLLAMA_DOWN, `Ollama didn't respond in time (${baseUrl})`);
   }
   if (err?.name === "AbortError") {
     return abortedError();
   }
-  return new OllamaError(ErrorCode.OLLAMA_DOWN, `Нет соединения с Ollama (${baseUrl})`);
+  return new OllamaError(ErrorCode.OLLAMA_DOWN, `Can't connect to Ollama (${baseUrl})`);
 }
 
 async function toHttpError(res) {
@@ -50,7 +50,7 @@ async function toHttpError(res) {
   if (status === 403) {
     return new OllamaError(
       ErrorCode.FORBIDDEN_ORIGIN,
-      "Ollama отклонила запрос расширения (403): не настроен OLLAMA_ORIGINS",
+      "Ollama rejected the extension's request (403): OLLAMA_ORIGINS is not set",
       { status },
     );
   }
@@ -82,7 +82,7 @@ async function readJson(res) {
   try {
     return await res.json();
   } catch {
-    throw new OllamaError(ErrorCode.BAD_RESPONSE, "Ollama вернула не JSON");
+    throw new OllamaError(ErrorCode.BAD_RESPONSE, "Ollama returned something other than JSON");
   }
 }
 
@@ -154,7 +154,7 @@ function watchStall(baseUrl, onStall) {
       await getVersion(baseUrl, { timeoutMs: CHAT_PROBE_TIMEOUT_MS, signal: probing.signal });
     } catch (err) {
       if (err.code === ErrorCode.OLLAMA_DOWN && !probing.signal.aborted) {
-        onStall(`Ollama не отвечает (${baseUrl})`);
+        onStall(`Ollama isn't responding (${baseUrl})`);
         return;
       }
     }
@@ -171,7 +171,7 @@ function watchStall(baseUrl, onStall) {
     chunk() {
       stop();
       timer = setTimeout(
-        () => onStall(`Ollama молчит дольше ${CHAT_IDLE_MS / 1000} с (${baseUrl})`),
+        () => onStall(`Ollama has been silent for over ${CHAT_IDLE_MS / 1000} s (${baseUrl})`),
         CHAT_IDLE_MS,
       );
     },
@@ -201,7 +201,7 @@ export async function chat(baseUrl, body, opts = {}) {
     try {
       chunk = JSON.parse(line);
     } catch {
-      throw new OllamaError(ErrorCode.BAD_RESPONSE, "Не удалось разобрать строку стрима Ollama");
+      throw new OllamaError(ErrorCode.BAD_RESPONSE, "Couldn't parse a line of the Ollama stream");
     }
     if (chunk.error) throw new OllamaError(ErrorCode.BAD_RESPONSE, chunk.error);
     const thought = chunk.message?.thinking ?? "";
@@ -247,7 +247,7 @@ export async function chat(baseUrl, body, opts = {}) {
     watch.stop();
   }
 
-  if (!final) throw new OllamaError(ErrorCode.BAD_RESPONSE, "Стрим Ollama оборвался до конца ответа");
+  if (!final) throw new OllamaError(ErrorCode.BAD_RESPONSE, "The Ollama stream ended before the response was complete");
   return {
     content,
     thinking,

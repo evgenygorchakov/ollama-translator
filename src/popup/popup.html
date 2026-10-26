@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>Ollama Translator</title>
@@ -11,14 +11,14 @@
     <header>
       <h1>Ollama Translator</h1>
       <div class="header-buttons">
-        <button id="refresh" class="icon-button" type="button" title="Проверить снова">⟳</button>
-        <button id="options" class="icon-button" type="button" title="Настройки">⚙</button>
+        <button id="refresh" class="icon-button" type="button" title="Check again">⟳</button>
+        <button id="options" class="icon-button" type="button" title="Settings">⚙</button>
       </div>
     </header>
 
     <section id="status" class="status" data-kind="checking">
       <span class="dot" aria-hidden="true"></span>
-      <span id="status-text">Проверяю Ollama…</span>
+      <span id="status-text">Checking Ollama…</span>
     </section>
     <div id="hint" class="hint" hidden>
       <p id="hint-text"></p>
@@ -26,7 +26,7 @@
     </div>
 
     <label class="field">
-      <span>Модель</span>
+      <span>Model</span>
       <select id="model" disabled></select>
     </label>
 
@@ -35,20 +35,20 @@
         id="stop"
         class="stop"
         type="button"
-        title="Оборвать все запросы к модели и выгрузить её из памяти"
+        title="Abort all model requests and unload the model from memory"
         hidden
       >
-        ■ Стоп
+        ■ Stop
       </button>
-      <button id="translate" class="primary" type="button" disabled>Перевести страницу</button>
-      <button id="original" type="button" hidden>Показать оригинал</button>
+      <button id="translate" class="primary" type="button" disabled>Translate page</button>
+      <button id="original" type="button" hidden>Show original</button>
     </div>
     <p id="progress" class="note" hidden></p>
     <p id="note" class="note" hidden></p>
 
     <div class="actions">
-      <button id="summary" type="button" disabled>Краткое содержание</button>
-      <button id="essence" type="button" disabled>В чём суть</button>
+      <button id="summary" type="button" disabled>Summary</button>
+      <button id="essence" type="button" disabled>Main point</button>
     </div>
     <p id="summary-note" class="note" hidden></p>
   </body>

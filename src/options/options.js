@@ -27,7 +27,7 @@ function setupStatic() {
     Object.assign($(key), { min, max, step });
   }
   $("targetLang").replaceChildren(
-    ...LANGUAGES.map((l) => new Option(`${l.label} (${l.name})`, l.code)),
+    ...LANGUAGES.map((l) => new Option(`${l.name} (${l.label})`, l.code)),
   );
   $("systemPrompt").placeholder = DEFAULT_BATCH_PROMPT;
 }
@@ -76,7 +76,7 @@ function setOllamaStatus(kind, text) {
 async function prepareUrl() {
   const url = parseServerUrl($("ollamaUrl").value);
   if (!url) {
-    setOllamaStatus("error", "Адрес должен быть вида http://host:11434");
+    setOllamaStatus("error", "The address must look like http://host:11434");
     return null;
   }
   let granted = false;
@@ -86,28 +86,28 @@ async function prepareUrl() {
     console.error(err);
   }
   if (!granted) {
-    setOllamaStatus("error", `Нет разрешения на доступ к ${url.origin}`);
+    setOllamaStatus("error", `No permission to access ${url.origin}`);
     return null;
   }
   return url;
 }
 
 async function checkOllama(baseUrl) {
-  setOllamaStatus("checking", "Проверяю Ollama…");
+  setOllamaStatus("checking", "Checking Ollama…");
   $("check").disabled = true;
   try {
     let version;
     [version, models] = await Promise.all([getVersion(baseUrl), listModels(baseUrl)]);
     renderModels($("model").value);
-    if (models.length) setOllamaStatus("ok", `Ollama ${version} · моделей: ${models.length}`);
-    else setOllamaStatus("warn", `Ollama ${version} работает, но моделей нет`);
+    if (models.length) setOllamaStatus("ok", `Ollama ${version} · models: ${models.length}`);
+    else setOllamaStatus("warn", `Ollama ${version} is running, but has no models`);
   } catch (err) {
     console.error(err);
     models = [];
     renderModels($("model").value);
     const hint =
       err.code === ErrorCode.FORBIDDEN_ORIGIN
-        ? " — задайте OLLAMA_ORIGINS=chrome-extension://*,moz-extension://* и перезапустите Ollama"
+        ? " — set OLLAMA_ORIGINS=chrome-extension://*,moz-extension://* and restart Ollama"
         : "";
     setOllamaStatus("error", err.message + hint);
   } finally {
@@ -126,7 +126,7 @@ $("form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const url = await prepareUrl();
   if (!url) {
-    setSaveStatus("Не сохранено: проверьте адрес Ollama");
+    setSaveStatus("Not saved: check the Ollama address");
     return;
   }
   // Пишем только поля, изменённые здесь: остальные могли сменить в popup, пока страница открыта.
@@ -137,7 +137,7 @@ $("form").addEventListener("submit", async (e) => {
   await setSettings(patch);
   settings = await getSettings();
   fill(settings); // показываем значения после проверки диапазонов
-  setSaveStatus("Сохранено");
+  setSaveStatus("Saved");
   if (urlChanged) await checkOllama(settings.ollamaUrl);
 });
 
@@ -151,14 +151,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 $("form").addEventListener("input", () => {
-  setSaveStatus("Есть несохранённые изменения");
+  setSaveStatus("Unsaved changes");
 });
 
 $("reset").addEventListener("click", async () => {
   await resetSettings();
   settings = await getSettings();
   fill(settings);
-  setSaveStatus("Настройки сброшены");
+  setSaveStatus("Settings reset");
   await checkOllama(settings.ollamaUrl);
 });
 

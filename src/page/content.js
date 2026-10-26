@@ -402,7 +402,7 @@
     } catch (err) {
       // подключиться не вышло: обычно «Extension context invalidated» — расширение перезагрузили
       console.error("[ot]", err);
-      fail(batch, "Нет связи с расширением — обновите страницу");
+      fail(batch, "No connection to the extension, reload the page");
       return;
     }
     // порт умер, а onDisconnect ещё не пришёл — post вызовет onPortDisconnect, батч вернётся в очередь
@@ -456,7 +456,7 @@
     if (!active) return;
     const lost = [...entries.values()].filter((e) => e.status === "queued" && !outbox.includes(e));
     if (++reconnects > MAX_RECONNECTS) {
-      fail(lost, "Связь с расширением потеряна");
+      fail(lost, "Lost connection to the extension");
       return;
     }
     for (const entry of lost) enqueue(entry);

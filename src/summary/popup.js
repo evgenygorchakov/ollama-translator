@@ -33,7 +33,7 @@ async function open(mode) {
     window.close(); // ответ — в панели на странице
   } catch (err) {
     console.error(err);
-    note.textContent = `Не удалось открыть панель: ${err.message}`;
+    note.textContent = `Couldn't open the panel: ${err.message}`;
     note.hidden = false;
   } finally {
     opening = false;

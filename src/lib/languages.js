@@ -1,20 +1,21 @@
-// Целевые языки: code — для атрибута lang, name — для промпта (по-английски).
+// Целевые языки: code — для атрибута lang, name — для промпта и списка в настройках
+// (по-английски), label — самоназвание языка.
 
 export const LANGUAGES = Object.freeze([
   { code: "ru", name: "Russian", label: "Русский" },
-  { code: "uk", name: "Ukrainian", label: "Украинский" },
-  { code: "be", name: "Belarusian", label: "Белорусский" },
-  { code: "kk", name: "Kazakh", label: "Казахский" },
-  { code: "de", name: "German", label: "Немецкий" },
-  { code: "fr", name: "French", label: "Французский" },
-  { code: "es", name: "Spanish", label: "Испанский" },
-  { code: "it", name: "Italian", label: "Итальянский" },
-  { code: "pt", name: "Portuguese", label: "Португальский" },
-  { code: "pl", name: "Polish", label: "Польский" },
-  { code: "tr", name: "Turkish", label: "Турецкий" },
-  { code: "zh", name: "Simplified Chinese", label: "Китайский (упрощённый)" },
-  { code: "ja", name: "Japanese", label: "Японский" },
-  { code: "ko", name: "Korean", label: "Корейский" },
+  { code: "uk", name: "Ukrainian", label: "Українська" },
+  { code: "be", name: "Belarusian", label: "Беларуская" },
+  { code: "kk", name: "Kazakh", label: "Қазақ тілі" },
+  { code: "de", name: "German", label: "Deutsch" },
+  { code: "fr", name: "French", label: "Français" },
+  { code: "es", name: "Spanish", label: "Español" },
+  { code: "it", name: "Italian", label: "Italiano" },
+  { code: "pt", name: "Portuguese", label: "Português" },
+  { code: "pl", name: "Polish", label: "Polski" },
+  { code: "tr", name: "Turkish", label: "Türkçe" },
+  { code: "zh", name: "Simplified Chinese", label: "简体中文" },
+  { code: "ja", name: "Japanese", label: "日本語" },
+  { code: "ko", name: "Korean", label: "한국어" },
 ]);
 
 export function isKnownLanguage(code) {

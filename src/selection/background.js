@@ -24,7 +24,7 @@ const MAX_CHARS = 5000;
 chrome.runtime.onInstalled.addListener(() => {
   ensureMenu({
     id: MENU_ID,
-    title: "Перевести выделенное",
+    title: "Translate selection",
     contexts: ["selection"],
   });
 });
@@ -52,7 +52,7 @@ async function openBubble(tabId, frameId, menuText, inSelectionFrame) {
   };
   if (await tryOpen()) return;
   await chrome.scripting.executeScript({ target, files: BUBBLE_SCRIPTS });
-  if (!(await tryOpen())) throw new Error("всплывашка не запустилась");
+  if (!(await tryOpen())) throw new Error("the translation popup didn't start");
 }
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -74,7 +74,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
 async function translate(text, signal) {
   if (text.length > MAX_CHARS) {
-    throw new OllamaError(ErrorCode.TEXT_TOO_LONG, `Текст длиннее ${MAX_CHARS} символов`);
+    throw new OllamaError(ErrorCode.TEXT_TOO_LONG, `Text is longer than ${MAX_CHARS} characters`);
   }
   // общий с переводом страницы лимит запросов; встаём перед её очередью
   const r = await withPrioritySlot({ signal }, (ctx) =>
