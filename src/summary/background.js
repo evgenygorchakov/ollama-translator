@@ -126,7 +126,8 @@ function pageSource(url) {
 // Панель — в главном фрейме, даже если выделение во вложенном. panel.js внедряем, только если
 // его там ещё нет или остался осиротевший экземпляр после перезагрузки расширения.
 // source — { kind: "page" } | { kind: "selection", text } | { kind: "video", videoId }; mode —
-// режим панели: "essence" — суть, "" — последняя длина краткого содержания. См. open в panel.js.
+// режим панели: "essence" — суть, "ask" — только вопросы, "" — последняя длина краткого
+// содержания. См. open в panel.js.
 async function openPanel(tabId, source = { kind: "page" }, mode = "") {
   const target = { tabId };
   const tryOpen = async () => {
@@ -193,7 +194,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // openPanel.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type !== "summarizeTab" || sender.tab) return;
-  const mode = msg.mode === "essence" ? "essence" : "";
+  const mode = ["essence", "ask"].includes(msg.mode) ? msg.mode : "";
   chrome.tabs
     .get(msg.tabId)
     .then((tab) => openPanel(tab.id, pageSource(tab.url), mode))

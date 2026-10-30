@@ -1,7 +1,8 @@
 // Панель с кратким содержанием или сутью страницы, выделенного или видео YouTube и вопросами по
 // тексту. Внедряется по кнопке в popup или из контекстного меню, ответ модели получает через порт
 // "summary" по мере генерации: у ответа панели и у каждого вопроса свой порт. Текст видео — его
-// субтитры, их панель просит по тому же порту. От перевода страницы, выделенного и озвучки не
+// субтитры, их панель просит по тому же порту. Открытая кнопкой «Спросить» — только для вопросов:
+// ответа панели нет, пока не выберут режим. От перевода страницы, выделенного и озвучки не
 // зависит. Текст модели — только textContent.
 (() => {
   const ns = (window.__ollamaTranslator ??= {});
@@ -25,11 +26,12 @@
   const MARGIN = 8;
 
   // Надписи по source.kind из open(). loading, noCaptions и live — только у видео. title —
-  // заголовок краткого содержания, essence — сути.
+  // заголовок краткого содержания, essence — сути, questions — панели без режима.
   const WORDING = {
     page: {
       title: "Summary",
       essence: "Main point",
+      questions: "Questions about the page",
       reading: "Reading the page…",
       parts: "The page is long, reading it in parts",
       partly: "Covers the beginning of the page",
@@ -41,6 +43,7 @@
     selection: {
       title: "Selection summary",
       essence: "Main point of the selection",
+      questions: "Questions about the selection",
       reading: "Reading the selection…",
       parts: "The selection is long, reading it in parts",
       partly: "Covers the beginning of the selection",
@@ -52,6 +55,7 @@
     video: {
       title: "Video summary",
       essence: "Main point of the video",
+      questions: "Questions about the video",
       loading: "Loading captions…",
       reading: "Reading the captions…",
       parts: "The video is long, reading it in parts",
@@ -171,9 +175,10 @@
   //   checkConn }
   // kind и words — source.kind из open() и надписи для него из WORDING. source — текст для модели;
   // у видео null, пока субтитры не загружены. captions — какие субтитры взяты.
-  // mode — режим из MODES; results — готовые ответы по режимам, thinkMs — сколько модель
-  // рассуждала (без рассуждения — undefined). stale — Set режимов, сброшенных «Сбросить»: их
-  // первый запрос после сброса считает заметки по частям заново.
+  // mode — режим из MODES или null: панель открыта для вопросов, режим не выбирали; results —
+  // готовые ответы по режимам, thinkMs — сколько модель рассуждала (без рассуждения —
+  // undefined). stale — Set режимов, сброшенных «Сбросить»: их первый запрос после сброса
+  // считает заметки по частям заново.
   // conn — порт идущего запроса: субтитров или ответа панели (краткого содержания или сути).
   // thinkTimer — таймер «Обдумываю… N с», пока модель рассуждает.
   // sent — сколько текста ушло модели в последнем запросе и какой модели (сообщение source).
@@ -284,12 +289,12 @@
     renderFoot("", result);
   }
 
-  // Режим — кнопки и заголовок панели.
+  // Режим — кнопки и заголовок панели; null — только вопросы, ни одна кнопка не нажата.
   function setMode(mode) {
     const { modeBtns, headingText, panel, words } = current;
     current.mode = mode;
     for (const [key, btn] of modeBtns) btn.setAttribute("aria-pressed", String(key === mode));
-    const title = mode === "essence" ? words.essence : words.title;
+    const title = !mode ? words.questions : mode === "essence" ? words.essence : words.title;
     headingText.textContent = title;
     panel.setAttribute("aria-label", title);
   }
@@ -387,6 +392,13 @@
     current.resetBtn.hidden = !shown;
   }
 
+  // Панель только для вопросов (режим null): ответа панели не просим, пока не выберут режим.
+  function showAskHint() {
+    showMessage("status", "Ask a question below or choose a mode above", false);
+    renderFoot();
+    current.askInput.focus();
+  }
+
   // Субтитры видео — по порту, как и краткое содержание: загружает их summary/background.js.
   function loadTranscript(state) {
     showMessage("status", state.words.loading, false);
@@ -418,7 +430,8 @@
           break;
         }
         showControls(true);
-        request(state.mode);
+        if (state.mode) request(state.mode);
+        else showAskHint();
         break;
       case "stopped":
         stopPort();
@@ -647,7 +660,8 @@
   }
 
   // Вопрос — модели; повтор после ошибки — тоже сюда. Первым ответом в истории — ответ панели в
-  // текущем режиме, под «Сутью» вопрос идёт с её num_ctx (см. summary/background.js).
+  // текущем режиме, если он готов; под «Сутью» вопрос идёт с её num_ctx, без режима — с num_ctx
+  // из настроек (см. summary/background.js).
   function sendQuestion(turn) {
     const state = current;
     if (state.askConn) return; // идёт ответ на другой вопрос
@@ -883,7 +897,8 @@
   // быть во вложенном фрейме), субтитры видео просит у него по порту. Заголовок страницы — модели
   // для контекста, и для выделенного тоже; у видео — его название.
   // Видео потом может смениться без перезагрузки страницы — панель остаётся о прежнем.
-  // mode — режим из MODES («В чём суть» — "essence"); "" — последняя длина краткого содержания.
+  // mode — режим из MODES («В чём суть» — "essence"); "" — последняя длина краткого содержания;
+  // "ask" — только вопросы, без ответа панели.
   function open(source = { kind: "page" }, mode = "") {
     close();
     const kind = Object.hasOwn(WORDING, source.kind) ? source.kind : "page";
@@ -906,14 +921,20 @@
       checked: false,
       checkConn: null,
     };
+    const asking = mode === "ask";
     const initial = MODES.some(([key]) => key === mode) ? mode : null;
-    setMode(initial ?? DEFAULT_LENGTH);
+    setMode(asking ? null : (initial ?? DEFAULT_LENGTH));
     document.documentElement.append(current.host);
     if (!current.source) {
       showControls(false); // спрашивать и сбрасывать — когда будут субтитры
     } else if (current.source.text.length < MIN_CHARS) {
       showControls(false);
       showMessage("status", words.tooShort, false);
+      return;
+    }
+    if (asking) {
+      if (current.source) showAskHint();
+      else loadTranscript(current);
       return;
     }
     if (initial) {
