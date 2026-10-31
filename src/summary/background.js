@@ -1,16 +1,14 @@
-// Краткое содержание и «В чём суть» страницы, выделенного и видео YouTube, часть service worker:
+// Краткое содержание страницы, выделенного и видео YouTube, часть service worker:
 // кнопки в popup (сообщение summarizeTab), пункты контекстного меню на странице и на выделенном,
 // внедрение панели (panel.js) и порт "summary", по которому она просит субтитры видео, краткое
-// содержание и суть. На странице видео (www.youtube.com/watch) кнопки и пункты меню страницы
+// содержание. На странице видео (www.youtube.com/watch) кнопки и пункты меню страницы
 // работают с видео по его субтитрам. От перевода страницы, выделенного и озвучки не зависит.
 //
 // Один порт — один запрос. Панель → сюда: transcript { videoId } — субтитры видео текстом;
-// summarize { text, title, length, kind, fresh } — краткое содержание; essence { text, title,
-// kind, fresh } — суть: главная мысль и раскрытие вокруг неё, модель с thinking перед ответом
-// рассуждает; fresh: true — заметки по частям этого текста считать заново, не из кэша (после
-// «Сбросить» в панели); ask
-// { text, title, kind, question, summary, history, mode } — вопрос по тексту, summary — ответ из
-// панели или "", mode — его режим: "essence" — суть, иначе краткое содержание; history — прошлые
+// summarize { text, title, length, kind, fresh } — краткое содержание; fresh: true — заметки по
+// частям этого текста считать заново, не из кэша (после «Сбросить» в панели); ask
+// { text, title, kind, question, summary, history } — вопрос по тексту, summary — краткое
+// содержание из панели или ""; history — прошлые
 // вопросы и ответы [{ question, answer }] по порядку; clickbait { text, title, length, summary,
 // model } — кликбейт ли название видео, summary — готовое краткое содержание длины length, model —
 // модель, которая его написала; ping. kind — "video" (промпты для расшифровки видео) или любое
@@ -43,21 +41,17 @@ import {
   SUMMARY_LENGTHS,
   buildAnswerRequest,
   buildClickbaitRequest,
-  buildEssenceRequest,
   buildMergeRequest,
   buildNotesRequest,
   buildSearchRequest,
   buildSummaryRequest,
   clickbaitOf,
-  essenceQuestion,
   excerptOf,
   summaryQuestion,
 } from "./lib/prompt.js";
 import { transcriptText } from "./lib/transcript.js";
 import {
-  ESSENCE_NUM_CTX,
   cutText,
-  essenceInputChars,
   excerptTokens,
   fitExcerpts,
   fitTurns,
@@ -68,12 +62,10 @@ import {
 
 const PORT_NAME = "summary";
 // Пункты контекстного меню: selection — о выделенном, иначе о странице (на странице видео — о
-// видео); mode — режим панели, "" — последняя длина краткого содержания (см. open в panel.js).
+// видео).
 const MENUS = {
-  "summarize-page": { title: "Summarize page", selection: false, mode: "" },
-  "summarize-selection": { title: "Summarize selection", selection: true, mode: "" },
-  "essence-page": { title: "Main point of the page", selection: false, mode: "essence" },
-  "essence-selection": { title: "Main point of the selection", selection: true, mode: "essence" },
+  "summarize-page": { title: "Summarize page", selection: false },
+  "summarize-selection": { title: "Summarize selection", selection: true },
 };
 const PANEL_SCRIPTS = [
   "src/shared/keepalive-port.js",
@@ -87,8 +79,7 @@ const PANEL_SCRIPTS = [
 const PARTIAL_MS = 150;
 // Дальше текст не читаем: при num_ctx 8192 это уже 9 частей, минуты на медленном железе.
 const MAX_CHARS = 150_000;
-// Заметки по частям — для стольких последних текстов (см. notesEntry): у краткого содержания и
-// сути заметки разные, на каждый текст до двух записей.
+// Заметки по частям — для стольких последних текстов (см. notesEntry).
 const NOTES_CACHE_SIZE = 6;
 
 // Ошибки pageCaptions — для «Не получилось: …». NO_CAPTIONS и LIVE панель пишет по-своему.
@@ -103,6 +94,12 @@ const CAPTION_ERRORS = {
 };
 
 chrome.runtime.onInstalled.addListener(() => {
+  // Пункты удалённого режима могли сохраниться от предыдущей версии расширения.
+  for (const id of ["essence-page", "essence-selection"]) {
+    chrome.contextMenus.remove(id, () => {
+      void chrome.runtime.lastError; // пункта уже нет — удалять нечего
+    });
+  }
   for (const [id, { title, selection }] of Object.entries(MENUS)) {
     ensureMenu({ id, title, contexts: [selection ? "selection" : "page"] });
   }
@@ -126,8 +123,8 @@ function pageSource(url) {
 // Панель — в главном фрейме, даже если выделение во вложенном. panel.js внедряем, только если
 // его там ещё нет или остался осиротевший экземпляр после перезагрузки расширения.
 // source — { kind: "page" } | { kind: "selection", text } | { kind: "video", videoId }; mode —
-// режим панели: "essence" — суть, "ask" — только вопросы, "" — последняя длина краткого
-// содержания. См. open в panel.js.
+// режим панели: "ask" — только вопросы, "" — последняя длина краткого содержания.
+// См. open в panel.js.
 async function openPanel(tabId, source = { kind: "page" }, mode = "") {
   const target = { tabId };
   const tryOpen = async () => {
@@ -174,10 +171,10 @@ async function selectedText(tabId, frameId, menuText) {
 
 async function openFromMenu(menu, info, tab) {
   if (!menu.selection) {
-    await openPanel(tab.id, pageSource(tab.url), menu.mode);
+    await openPanel(tab.id, pageSource(tab.url));
   } else {
     const text = await selectedText(tab.id, info.frameId ?? 0, info.selectionText ?? "");
-    await openPanel(tab.id, { kind: "selection", text }, menu.mode);
+    await openPanel(tab.id, { kind: "selection", text });
   }
 }
 
@@ -194,7 +191,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // openPanel.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type !== "summarizeTab" || sender.tab) return;
-  const mode = ["essence", "ask"].includes(msg.mode) ? msg.mode : "";
+  const mode = msg.mode === "ask" ? "ask" : "";
   chrome.tabs
     .get(msg.tabId)
     .then((tab) => openPanel(tab.id, pageSource(tab.url), mode))
@@ -268,8 +265,8 @@ function withoutThinking(content) {
 // Каждый запрос — со своим слотом (общий с переводом лимит, перед очередью перевода страниц):
 // между частями длинного текста успевает перевод выделенного. numCtx — num_ctx, под который
 // посчитан бюджет текста, model — модель, которой пишутся заметки и ответ (её видно в панели):
-// запрос идёт с ними, а не с тем, что в настройках сейчас (у «Сути» num_ctx свой,
-// ESSENCE_NUM_CTX). onContent, onThinking — см. chat в lib/ollama.js. И onContent, и в ответе
+// запрос идёт с ними, а не с тем, что в настройках сейчас.
+// onContent, onThinking — см. chat в lib/ollama.js. И onContent, и в ответе
 // content — без рассуждения. → { content, thinking, doneReason }
 function ask(job, build, { numCtx, model, onContent, onThinking } = {}) {
   return withPrioritySlot({ signal: job.controller.signal, model }, async (ctx) => {
@@ -281,10 +278,10 @@ function ask(job, build, { numCtx, model, onContent, onThinking } = {}) {
   });
 }
 
-// Заметки по частям: SHA-256 от key (модель, язык, kind, режим, размер части, текст) →
+// Заметки по частям: SHA-256 от key (модель, язык, kind, размер части, текст) →
 // { notes, merged }. notes[i] — заметки по i-й части splitText, как только готовы (null — ещё
 // нет): оборванный запрос (смена режима, «Стоп») продолжится с той же части, а другая длина
-// возьмёт merged — заметки одни на обе длины краткого содержания, у «Сути» свои. Копия — в
+// возьмёт merged — заметки одни на обе длины краткого содержания. Копия — в
 // storage.session: service worker засыпает через 30 с простоя, а «Подробно» обычно нажимают,
 // прочитав «Коротко». Map в порядке использования, старые вытесняются.
 const NOTES_KEY = "summaryNotes";
@@ -327,14 +324,14 @@ async function notesEntry(key, text, budget, fresh) {
 
 // Заметки по частям не влезают в один запрос — сводим их группами, пока не влезут. Если модель
 // не сократила, берём начало: лучше итог без конца, чем бесконечный цикл.
-async function mergeNotes(job, text, { title, lang, kind, mode, budget, numCtx, model }) {
+async function mergeNotes(job, text, { title, lang, kind, budget, numCtx, model }) {
   while (text.length > budget) {
     safePost(job.port, { type: "progress", step: "merge" });
     const merged = [];
     for (const group of splitText(text, budget)) {
       const { content } = await ask(
         job,
-        (ctx) => buildMergeRequest({ text: group, title, lang, kind, mode }, ctx),
+        (ctx) => buildMergeRequest({ text: group, title, lang, kind }, ctx),
         { numCtx, model },
       );
       merged.push(content.trim());
@@ -346,11 +343,10 @@ async function mergeNotes(job, text, { title, lang, kind, mode, budget, numCtx, 
   return text;
 }
 
-// Длинный текст → заметки по частям, сведённые так, чтобы влезли в один запрос. mode —
-// "summary" (для краткого содержания) или "essence" (для сути): заметки у них разные. fresh —
-// не брать заметки из кэша, см. notesEntry.
-async function notesOf(job, text, { title, lang, kind, mode, budget, numCtx, model, fresh }) {
-  const key = `${model}|${lang}|${kind}|${mode}|${budget}|${text}`;
+// Длинный текст → заметки по частям, сведённые так, чтобы влезли в один запрос. fresh — не брать
+// заметки из кэша, см. notesEntry.
+async function notesOf(job, text, { title, lang, kind, budget, numCtx, model, fresh }) {
+  const key = `${model}|${lang}|${kind}|summary|${budget}|${text}`;
   const { entry, parts } = await notesEntry(key, text, budget, fresh);
   if (entry.merged !== null) return entry.merged;
   const { notes } = entry;
@@ -362,7 +358,7 @@ async function notesOf(job, text, { title, lang, kind, mode, budget, numCtx, mod
       job,
       (ctx) =>
         buildNotesRequest(
-          { text: parts[i], title, part: i + 1, parts: parts.length, lang, kind, mode },
+          { text: parts[i], title, part: i + 1, parts: parts.length, lang, kind },
           ctx,
         ),
       { numCtx, model },
@@ -372,16 +368,15 @@ async function notesOf(job, text, { title, lang, kind, mode, budget, numCtx, mod
   }
   job.queued = 1; // сведение заметок и итог
   const all = notes.map((n, i) => `Part ${i + 1}:\n${n}`).join("\n\n");
-  entry.merged = await mergeNotes(job, all, { title, lang, kind, mode, budget, numCtx, model });
+  entry.merged = await mergeNotes(job, all, { title, lang, kind, budget, numCtx, model });
   saveNotes();
   return entry.merged;
 }
 
 // Последний запрос — тот, чей ответ панель показывает по мере генерации. Модель начала
 // рассуждать — панели progress think, само рассуждение — в console.debug.
-// numCtx, model — см. ask; fixedCtx — numCtx постоянный, не из настроек (у «Сути»): совет поднять
-// num_ctx в настройках не поможет. → { text, cut }, после рассуждения ещё thinkMs
-async function complete(job, build, { numCtx, model, fixedCtx = false }) {
+// numCtx, model — см. ask. → { text, cut }, после рассуждения ещё thinkMs
+async function complete(job, build, { numCtx, model }) {
   const partial = partialSender(job.port);
   let thinkStart = 0; // первый кусок рассуждения
   let thinkEnd = 0; // первый кусок ответа после него
@@ -405,12 +400,11 @@ async function complete(job, build, { numCtx, model, fixedCtx = false }) {
     const cut = doneReason === "length";
     // пусто и обрезано — модель упёрлась в num_ctx, ещё рассуждая
     if (!content.trim()) {
-      const hint = fixedCtx ? "" : " (num_ctx in settings)";
       const message = !cut
         ? "the model returned an empty response"
         : thinking
           ? "the model kept reasoning until it ran out of context"
-          : `response cut off: the model ran out of context${hint}`;
+          : "response cut off: the model ran out of context (num_ctx in settings)";
       throw new OllamaError(ErrorCode.BAD_RESPONSE, message);
     }
     const text = content.trim();
@@ -428,7 +422,7 @@ async function summarize(job, { text, title, kind, length, fresh }) {
   const used = cutText(text, MAX_CHARS);
   safePost(job.port, { type: "source", used: used.length, total: text.length, model });
   const fromNotes = used.length > budget;
-  const notesOpts = { title, lang, kind, mode: "summary", budget, numCtx, model, fresh };
+  const notesOpts = { title, lang, kind, budget, numCtx, model, fresh };
   const source = fromNotes ? await notesOf(job, used, notesOpts) : used;
   job.queued = 0;
   if (fromNotes) safePost(job.port, { type: "progress", step: "final" });
@@ -436,26 +430,6 @@ async function summarize(job, { text, title, kind, length, fresh }) {
     job,
     (ctx) => buildSummaryRequest({ text: source, title, length, lang, kind, fromNotes }, ctx),
     { numCtx, model },
-  );
-}
-
-// В чём суть: всё — с num_ctx «Сути», длинный текст — по своим заметкам, итог — с рассуждением,
-// если модель умеет. fresh — см. notesOf. → { text, cut, thinkMs? }
-async function essence(job, { text, title, kind, fresh }) {
-  const { targetLang: lang, model } = await getSettings();
-  const numCtx = ESSENCE_NUM_CTX;
-  const budget = essenceInputChars();
-  const used = cutText(text, MAX_CHARS);
-  safePost(job.port, { type: "source", used: used.length, total: text.length, model });
-  const fromNotes = used.length > budget;
-  const notesOpts = { title, lang, kind, mode: "essence", budget, numCtx, model, fresh };
-  const source = fromNotes ? await notesOf(job, used, notesOpts) : used;
-  job.queued = 0;
-  if (fromNotes) safePost(job.port, { type: "progress", step: "final" });
-  return complete(
-    job,
-    (ctx) => buildEssenceRequest({ text: source, title, lang, kind, fromNotes }, ctx),
-    { numCtx, model, fixedCtx: true },
   );
 }
 
@@ -495,19 +469,16 @@ async function search(job, text, { title, kind, question, past, numCtx, model })
   return { text: joined, missed, parts: parts.length };
 }
 
-// Вопрос по тексту. Ответ из панели (краткое содержание или суть, mode) — первым ответом в
-// истории: вопросы бывают про него. Под «Сутью» — с её num_ctx.
+// Вопрос по тексту. Краткое содержание из панели — первым ответом в истории: вопросы бывают
+// про него.
 // → { text, cut }, у длинного текста ещё missed и parts, если в каких-то частях модель ничего не
 // успела выписать (см. search)
-async function answer(job, { text, title, kind, question, summary, history, mode }) {
-  const settings = await getSettings();
-  const { targetLang: lang, model } = settings;
-  const numCtx = mode === "essence" ? ESSENCE_NUM_CTX : settings.numCtx;
+async function answer(job, { text, title, kind, question, summary, history }) {
+  const { numCtx, targetLang: lang, model } = await getSettings();
   const budget = inputChars(numCtx);
   const used = cutText(text, MAX_CHARS);
   safePost(job.port, { type: "source", used: used.length, total: text.length, model });
-  const first = mode === "essence" ? essenceQuestion(kind) : summaryQuestion(kind);
-  const past = summary ? [{ question: first, answer: summary }, ...history] : history;
+  const past = summary ? [{ question: summaryQuestion(kind), answer: summary }, ...history] : history;
   const fromExcerpts = used.length > budget;
   const found = fromExcerpts
     ? await search(job, used, { title, kind, question, past, numCtx, model })
@@ -528,7 +499,7 @@ async function answer(job, { text, title, kind, question, summary, history, mode
     job,
     (ctx) =>
       buildAnswerRequest({ text: source, title, question, turns, lang, kind, fromExcerpts }, ctx),
-    { numCtx, model, fixedCtx: mode === "essence" },
+    { numCtx, model },
   );
   return found?.missed ? { ...result, missed: found.missed, parts: found.parts } : result;
 }
@@ -548,7 +519,7 @@ async function clickbait(job, { text, title, length, summary, model: summaryMode
   const model = summaryModel || settings.model;
   const budget = inputChars(numCtx);
   const fromNotes = text.length > budget;
-  const notesOpts = { title, lang, kind: "video", mode: "summary", budget, numCtx, model };
+  const notesOpts = { title, lang, kind: "video", budget, numCtx, model };
   const source = fromNotes ? await notesOf(job, text, notesOpts) : text;
   job.queued = 0;
   const { content } = await ask(
@@ -587,7 +558,7 @@ registerQueue(() => {
 const isString = (value) => typeof value === "string";
 const isTurn = (turn) => isString(turn?.question) && isString(turn?.answer);
 
-// Сообщение панели → промис summarize, essence, answer или clickbait; null — не запрос (ping) или
+// Сообщение панели → промис summarize, answer или clickbait; null — не запрос (ping) или
 // битое.
 function start(job, msg) {
   if (!isString(msg?.text)) return null;
@@ -597,9 +568,6 @@ function start(job, msg) {
   const fresh = msg.fresh === true;
   if (msg.type === "summarize") {
     return summarize(job, { text: msg.text, title, kind, length, fresh });
-  }
-  if (msg.type === "essence") {
-    return essence(job, { text: msg.text, title, kind, fresh });
   }
   if (msg.type === "clickbait" && title.trim() && isString(msg.summary) && msg.summary.trim()) {
     const model = isString(msg.model) ? msg.model : "";
@@ -613,7 +581,6 @@ function start(job, msg) {
       question: msg.question.trim(),
       summary: isString(msg.summary) ? msg.summary : "",
       history: Array.isArray(msg.history) ? msg.history.filter(isTurn) : [],
-      mode: msg.mode === "essence" ? "essence" : "summary",
     });
   }
   return null;

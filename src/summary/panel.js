@@ -1,4 +1,4 @@
-// Панель с кратким содержанием или сутью страницы, выделенного или видео YouTube и вопросами по
+// Панель с кратким содержанием страницы, выделенного или видео YouTube и вопросами по
 // тексту. Внедряется по кнопке в popup или из контекстного меню, ответ модели получает через порт
 // "summary" по мере генерации: у ответа панели и у каждого вопроса свой порт. Текст видео — его
 // субтитры, их панель просит по тому же порту. Открытая кнопкой «Спросить» — только для вопросов:
@@ -11,26 +11,24 @@
   const { summaryFormat: format, summaryExtract: extract } = ns;
   const PORT_NAME = "summary";
   const LENGTH_KEY = "summaryLength";
-  // Режимы: длины краткого содержания (ключи — SUMMARY_LENGTHS из lib/prompt.js) и суть. В
-  // storage — только последняя длина: «Суть» открывают своей кнопкой.
+  // Режимы: длины краткого содержания (ключи — SUMMARY_LENGTHS из lib/prompt.js).
   const MODES = [
     ["short", "Short"],
     ["long", "Detailed"],
-    ["essence", "Main point"],
   ];
-  const LENGTHS = ["short", "long"];
+  const LENGTHS = MODES.map(([key]) => key);
   const DEFAULT_LENGTH = "short";
   // Короче — сокращать нечего.
   const MIN_CHARS = 200;
   const MAX_QUESTION = 1000;
   const MARGIN = 8;
+  const CUT_NOTE = "Response cut off: the model ran out of context (num_ctx in settings)";
 
   // Надписи по source.kind из open(). loading, noCaptions и live — только у видео. title —
-  // заголовок краткого содержания, essence — сути, questions — панели без режима.
+  // заголовок краткого содержания, questions — панели без режима.
   const WORDING = {
     page: {
       title: "Summary",
-      essence: "Main point",
       questions: "Questions about the page",
       reading: "Reading the page…",
       parts: "The page is long, reading it in parts",
@@ -42,7 +40,6 @@
     },
     selection: {
       title: "Selection summary",
-      essence: "Main point of the selection",
       questions: "Questions about the selection",
       reading: "Reading the selection…",
       parts: "The selection is long, reading it in parts",
@@ -54,7 +51,6 @@
     },
     video: {
       title: "Video summary",
-      essence: "Main point of the video",
       questions: "Questions about the video",
       loading: "Loading captions…",
       reading: "Reading the captions…",
@@ -125,10 +121,6 @@
       padding: 10px 12px; overflow-wrap: anywhere; user-select: text;
     }
     .body p { margin: 0 0 8px; }
-    .body .thesis {
-      margin-bottom: 10px; padding: 6px 10px; border-left: 3px solid var(--accent);
-      border-radius: 0 6px 6px 0; background: var(--btn-hover); font-weight: 600;
-    }
     .body h3 { margin: 12px 0 4px; font: inherit; font-weight: 600; }
     .body h3:first-child { margin-top: 0; }
     .body ul { margin: 0 0 8px; padding-left: 20px; }
@@ -179,13 +171,12 @@
   // готовые ответы по режимам, thinkMs — сколько модель рассуждала (без рассуждения —
   // undefined). stale — Set режимов, сброшенных «Сбросить»: их первый запрос после сброса
   // считает заметки по частям заново.
-  // conn — порт идущего запроса: субтитров или ответа панели (краткого содержания или сути).
+  // conn — порт идущего запроса: субтитров или краткого содержания.
   // thinkTimer — таймер «Обдумываю… N с», пока модель рассуждает.
   // sent — сколько текста ушло модели в последнем запросе и какой модели (сообщение source).
-  // turns — вопросы по порядку: { question, answer, cut, sent, missed, mode, node, answerBox,
+  // turns — вопросы по порядку: { question, answer, cut, sent, missed, node, answerBox,
   // note }; answer — null, пока готового ответа нет (идёт, ошибка, остановлено); missed —
-  // { count, parts } из result (см. summary/background.js) или null; mode — режим панели, когда
-  // вопрос ушёл модели. askConn — порт идущего вопроса.
+  // { count, parts } из result (см. summary/background.js) или null. askConn — порт идущего вопроса.
   // checked — название видео на кликбейт проверено, checkConn — порт идущей проверки.
   let current = null;
 
@@ -198,13 +189,6 @@
 
   function percent(part, whole) {
     return Math.max(1, Math.floor((part / whole) * 100));
-  }
-
-  // Ответ упёрся в num_ctx. У «Сути» он постоянный — настройки тут не помогут.
-  function cutNote(mode) {
-    return mode === "essence"
-      ? "Response cut off: the model ran out of context"
-      : "Response cut off: the model ran out of context (num_ctx in settings)";
   }
 
   // status — что идёт сейчас («Пишу…»); у готового ответа cut — он упёрся в num_ctx, thinkMs —
@@ -228,7 +212,7 @@
     if (sent?.model) model.push(`Model: ${sent.model}`);
     if (thinkMs !== undefined) model.push(`reasoned for ${Math.round(thinkMs / 1000)} s`);
     const lines = [parts.join(" · "), model.join(" · ")];
-    if (cut) lines.push(cutNote(current.mode));
+    if (cut) lines.push(CUT_NOTE);
     foot.replaceChildren(...lines.filter(Boolean).map((line) => el("div", null, line)));
     foot.hidden = !foot.childNodes.length;
   }
@@ -249,12 +233,9 @@
     return nodes;
   }
 
-  // Ответ панели. У сути первый абзац — сама мысль, он выделен. localName, а не tagName: в
-  // XHTML-документе tagName в нижнем регистре.
+  // Ответ панели.
   function renderText(text) {
-    const nodes = textNodes(text);
-    if (current.mode === "essence" && nodes[0]?.localName === "p") nodes[0].classList.add("thesis");
-    current.summaryBox.replaceChildren(...nodes);
+    current.summaryBox.replaceChildren(...textNodes(text));
   }
 
   // Сообщение вместо текста; onRetry — для кнопки «Повторить», без него кнопки нет.
@@ -294,7 +275,7 @@
     const { modeBtns, headingText, panel, words } = current;
     current.mode = mode;
     for (const [key, btn] of modeBtns) btn.setAttribute("aria-pressed", String(key === mode));
-    const title = !mode ? words.questions : mode === "essence" ? words.essence : words.title;
+    const title = mode ? words.title : words.questions;
     headingText.textContent = title;
     panel.setAttribute("aria-label", title);
   }
@@ -358,13 +339,9 @@
     // После сброса первый запрос режима — с fresh: фон считает заметки по частям заново. Заметки
     // у длин краткого содержания общие — пересчитанные для одной годятся и другой.
     const fresh = state.stale.has(mode);
-    for (const key of LENGTHS.includes(mode) ? LENGTHS : [mode]) state.stale.delete(key);
+    state.stale.clear();
     // порт мёртв — onDisconnect покажет ошибку
-    state.conn.post(
-      mode === "essence"
-        ? { type: "essence", text, title, kind, fresh }
-        : { type: "summarize", text, title, length: mode, kind, fresh },
-    );
+    state.conn.post({ type: "summarize", text, title, length: mode, kind, fresh });
   }
 
   // «Сбросить»: оборвать идущие запросы, забыть ответы всех режимов, вопросы и проверку названия
@@ -453,7 +430,7 @@
   function progressText({ step, part, parts }) {
     if (step === "part") return `${current.words.parts}: ${part} of ${parts}…`;
     if (step === "merge") return "Merging notes from the parts…";
-    return current.mode === "essence" ? "Looking for the main point…" : "Writing the summary…";
+    return "Writing the summary…";
   }
 
   function onMessage(state, mode, msg) {
@@ -481,7 +458,7 @@
           sent: state.sent,
         };
         showResult(state.results[mode]);
-        if (LENGTHS.includes(mode)) checkTitle(mode); // после сути не проверяем
+        checkTitle(mode);
         break;
       case "stopped":
         stopPort();
@@ -495,7 +472,7 @@
     }
   }
 
-  // «Суть» в storage не пишем: «Краткое содержание» открывает последнюю длину.
+  // «Краткое содержание» открывает последнюю выбранную длину.
   function chooseMode(mode) {
     const state = current;
     if (state.source && state.source.text.length < MIN_CHARS) return;
@@ -505,7 +482,7 @@
     // субтитры ещё загружаются — ответ этого режима будет, когда загрузятся
     if (!state.source && state.conn) setMode(mode);
     else request(mode);
-    if (LENGTHS.includes(mode)) saveLength(mode);
+    saveLength(mode);
   }
 
   async function saveLength(length) {
@@ -635,7 +612,7 @@
   }
 
   // Под готовым ответом: сколько текста учтено, обрезан ли ответ.
-  function answerNotes({ sent, cut, missed, mode }) {
+  function answerNotes({ sent, cut, missed }) {
     const notes = [];
     if (sent && sent.used < sent.total) {
       notes.push(`${current.words.partly}: ${percent(sent.used, sent.total)}% of the text`);
@@ -646,7 +623,7 @@
           "response length limit without extracting anything from them",
       );
     }
-    if (cut) notes.push(cutNote(mode));
+    if (cut) notes.push(CUT_NOTE);
     return notes;
   }
 
@@ -660,12 +637,11 @@
   }
 
   // Вопрос — модели; повтор после ошибки — тоже сюда. Первым ответом в истории — ответ панели в
-  // текущем режиме, если он готов; под «Сутью» вопрос идёт с её num_ctx, без режима — с num_ctx
-  // из настроек (см. summary/background.js).
+  // текущем режиме, если он готов.
   function sendQuestion(turn) {
     const state = current;
     if (state.askConn) return; // идёт ответ на другой вопрос
-    Object.assign(turn, { answer: null, cut: false, sent: null, missed: null, mode: state.mode });
+    Object.assign(turn, { answer: null, cut: false, sent: null, missed: null });
     showAnswerMessage(turn, "status", "Thinking…", false);
     // после stopAsk() порт ничего не вызывает — ответ всегда к этому вопросу
     try {
@@ -691,7 +667,6 @@
       question: turn.question,
       summary: state.results[state.mode]?.text ?? "",
       history: historyBefore(turn),
-      mode: state.mode,
     });
   }
 
@@ -754,7 +729,6 @@
       cut: false,
       sent: null,
       missed: null,
-      mode: null,
       ...buildTurn(question),
     };
     turns.push(turn);
@@ -897,7 +871,7 @@
   // быть во вложенном фрейме), субтитры видео просит у него по порту. Заголовок страницы — модели
   // для контекста, и для выделенного тоже; у видео — его название.
   // Видео потом может смениться без перезагрузки страницы — панель остаётся о прежнем.
-  // mode — режим из MODES («В чём суть» — "essence"); "" — последняя длина краткого содержания;
+  // mode — длина из MODES; "" — последняя длина краткого содержания;
   // "ask" — только вопросы, без ответа панели.
   function open(source = { kind: "page" }, mode = "") {
     close();
