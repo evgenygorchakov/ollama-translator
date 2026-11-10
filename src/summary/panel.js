@@ -1,5 +1,6 @@
-// Панель с кратким содержанием страницы, выделенного или видео YouTube и вопросами по
-// тексту. Внедряется по кнопке в popup или из контекстного меню, ответ модели получает через порт
+// Панель с кратким содержанием страницы, выделенного или видео YouTube, вопросами по тексту
+// и свободным разговором с моделью. Внедряется по кнопке в popup или из контекстного меню,
+// ответ модели получает через порт
 // "summary" по мере генерации: у ответа панели и у каждого вопроса свой порт. Текст видео — его
 // субтитры, их панель просит по тому же порту. Открытая кнопкой «Спросить» — только для вопросов:
 // ответа панели нет, пока не выберут режим. От перевода страницы, выделенного и озвучки не
@@ -131,13 +132,19 @@
       margin-bottom: 6px; padding: 4px 8px; border-radius: 6px;
       background: var(--btn-hover); font-weight: 600; white-space: pre-wrap;
     }
+    .turn-mode { margin-bottom: 4px; color: var(--muted); font-size: 12px; }
+    .sources { margin-top: 8px; font-size: 12px; }
+    .sources[hidden] { display: none; }
+    .sources a { display: block; margin-top: 4px; color: var(--accent); overflow-wrap: anywhere; }
     .note { margin-top: 6px; color: var(--muted); font-size: 12px; }
     .note[hidden] { display: none; }
     .ask {
-      display: flex; align-items: flex-end; gap: 6px;
+      flex-shrink: 0;
       padding: 8px 12px; border-top: 1px solid var(--border);
     }
     .ask[hidden] { display: none; }
+    .ask-row { display: flex; align-items: flex-end; gap: 6px; }
+    .ask .note { margin-top: 4px; }
     textarea {
       flex: 1; box-sizing: border-box; min-width: 0; max-height: 120px; margin: 0;
       padding: 4px 8px; resize: none; overflow-y: auto;
@@ -160,7 +167,7 @@
     .retry:disabled { background: none; color: var(--accent); }
   `;
 
-  // { host, panel, heading, headingText, body, summaryBox, thread, foot, ask, askInput, askBtn,
+  // { host, panel, heading, headingText, body, summaryBox, thread, foot, composers,
   //   resetBtn, copyBtn, modeBtns, kind, words, videoId, source: { title, text } | null,
   //   captions: { kind, lang } | null, mode, results: { [mode]: { text, cut, thinkMs, sent } },
   //   stale, sent: { used, total, model } | null, conn, thinkTimer, turns, askConn, checked,
@@ -174,8 +181,9 @@
   // conn — порт идущего запроса: субтитров или краткого содержания.
   // thinkTimer — таймер «Обдумываю… N с», пока модель рассуждает.
   // sent — сколько текста ушло модели в последнем запросе и какой модели (сообщение source).
-  // turns — вопросы по порядку: { question, answer, cut, sent, missed, node, answerBox,
-  // note }; answer — null, пока готового ответа нет (идёт, ошибка, остановлено); missed —
+  // composers — { ask, chat }: { box, input, button } — вопросы по тексту и свободный разговор.
+  // turns — вопросы по порядку: { mode: "ask" | "chat", question, answer, cut, sent, missed,
+  // node, answerBox, note }; answer — null, пока готового ответа нет (идёт, ошибка, остановлено); missed —
   // { count, parts } из result (см. summary/background.js) или null. askConn — порт идущего вопроса.
   // checked — название видео на кликбейт проверено, checkConn — порт идущей проверки.
   let current = null;
@@ -363,17 +371,16 @@
     renderFoot();
   }
 
-  // Поле вопроса и «Сбросить» — только когда есть что сокращать: у видео — после субтитров.
+  // Вопросы по тексту — только когда есть что читать; свободный разговор и сброс доступны всегда.
   function showControls(shown) {
-    current.ask.hidden = !shown;
-    current.resetBtn.hidden = !shown;
+    current.composers.ask.box.hidden = !shown;
   }
 
   // Панель только для вопросов (режим null): ответа панели не просим, пока не выберут режим.
   function showAskHint() {
     showMessage("status", "Ask a question below or choose a mode above", false);
     renderFoot();
-    current.askInput.focus();
+    if (document.activeElement !== current.host) current.composers.ask.input.focus();
   }
 
   // Субтитры видео — по порту, как и краткое содержание: загружает их summary/background.js.
@@ -575,7 +582,7 @@
   // Пока идёт ответ, другой вопрос не отправить — ни новый, ни повтор.
   function syncAsk() {
     const busy = Boolean(current.askConn);
-    current.askBtn.disabled = busy;
+    for (const { button } of Object.values(current.composers)) button.disabled = busy;
     for (const btn of current.thread.querySelectorAll(".retry")) btn.disabled = busy;
   }
 
@@ -599,7 +606,28 @@
       turn.answerBox.replaceChildren(...nodes);
       turn.note.replaceChildren(...notes.map((line) => el("div", null, line)));
       turn.note.hidden = !notes.length;
+      renderSources(turn);
     });
+  }
+
+  function renderSources(turn) {
+    const links = [];
+    for (const source of turn.sources ?? []) {
+      try {
+        const url = new URL(source.url);
+        if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) continue;
+        const link = el("a", null, `[${source.id}] ${source.title || url.hostname}`);
+        link.href = url.href;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.title = url.href;
+        links.push(link);
+      } catch {
+        // Некорректный URL не превращаем в ссылку.
+      }
+    }
+    turn.sourcesBox.replaceChildren(...(links.length ? [el("div", null, "Sources consulted"), ...links] : []));
+    turn.sourcesBox.hidden = !links.length;
   }
 
   // canRetry — как у showMessage
@@ -612,7 +640,7 @@
   }
 
   // Под готовым ответом: сколько текста учтено, обрезан ли ответ.
-  function answerNotes({ sent, cut, missed }) {
+  function answerNotes({ sent, cut, missed, webLimited }) {
     const notes = [];
     if (sent && sent.used < sent.total) {
       notes.push(`${current.words.partly}: ${percent(sent.used, sent.total)}% of the text`);
@@ -624,6 +652,7 @@
       );
     }
     if (cut) notes.push(CUT_NOTE);
+    if (webLimited) notes.push("Web search limit reached; answer uses the information found so far.");
     return notes;
   }
 
@@ -632,8 +661,13 @@
     const { turns } = current;
     return turns
       .slice(0, turns.indexOf(turn))
-      .filter((t) => t.answer !== null)
-      .map(({ question, answer }) => ({ question, answer }));
+      .filter((t) => t.mode === turn.mode && t.answer !== null)
+      .map(({ question, answer, sources }) => ({
+        question,
+        answer: sources?.length
+          ? `${answer}\n\nSources consulted in this earlier reply:\n${sources.map((s) => `[${s.id}] ${s.title}: ${s.url}`).join("\n")}`
+          : answer,
+      }));
   }
 
   // Вопрос — модели; повтор после ошибки — тоже сюда. Первым ответом в истории — ответ панели в
@@ -641,7 +675,7 @@
   function sendQuestion(turn) {
     const state = current;
     if (state.askConn) return; // идёт ответ на другой вопрос
-    Object.assign(turn, { answer: null, cut: false, sent: null, missed: null });
+    Object.assign(turn, { answer: null, cut: false, sent: null, missed: null, sources: [], webLimited: false });
     showAnswerMessage(turn, "status", "Thinking…", false);
     // после stopAsk() порт ничего не вызывает — ответ всегда к этому вопросу
     try {
@@ -658,9 +692,9 @@
       return;
     }
     syncAsk();
-    const { title, text } = state.source;
+    const { title, text } = state.source ?? { title: "", text: "" };
     state.askConn.post({
-      type: "ask",
+      type: turn.mode,
       text,
       title,
       kind: state.kind,
@@ -671,13 +705,21 @@
   }
 
   // длинный текст: поиск ответа по частям, потом ответ — см. summary/background.js
-  function searchProgressText({ step, part, parts }) {
+  function searchProgressText({ step, part, parts, detail }) {
+    if (step === "web-search") return `Searching the web: ${String(detail ?? "").slice(0, 160)}…`;
     if (step === "search") return `${current.words.search}: ${part} of ${parts}…`;
+    if (step === "part" || step === "merge") return progressText({ step, part, parts });
+    if (step === "think") return "Thinking…";
     return "Writing the answer…";
   }
 
   function onAnswerMessage(turn, msg) {
     switch (msg?.type) {
+      case "web-status":
+        current.composers.chat.hint.textContent = msg.enabled
+          ? "SearXNG search is automatic when the model needs it"
+          : "Web search is off — configure SearXNG and enable it in Settings";
+        break;
       case "source":
         turn.sent = { used: msg.used, total: msg.total };
         break;
@@ -693,6 +735,8 @@
           answer: msg.text,
           cut: Boolean(msg.cut),
           missed: msg.missed ? { count: msg.missed, parts: msg.parts } : null,
+          sources: Array.isArray(msg.sources) ? msg.sources : [],
+          webLimited: Boolean(msg.webLimited),
         });
         showAnswer(turn, textNodes(msg.text), answerNotes(turn));
         break;
@@ -707,29 +751,39 @@
     }
   }
 
-  function buildTurn(question) {
+  function buildTurn(question, mode) {
     const node = el("div", "turn");
     const answerBox = el("div", "answer");
     const note = el("div", "note");
     note.hidden = true;
-    node.append(el("div", "question", question), answerBox, note);
-    return { node, answerBox, note };
+    const sourcesBox = el("div", "sources");
+    sourcesBox.hidden = true;
+    node.append(
+      el("div", "turn-mode", mode === "chat" ? "Free answer" : "From the text"),
+      el("div", "question", question),
+      answerBox,
+      note,
+      sourcesBox,
+    );
+    return { node, answerBox, note, sourcesBox };
   }
 
   // Пока идёт ответ, следующий вопрос можно набирать, но не отправить.
-  function askQuestion() {
-    const { askInput, askConn, turns, thread, body } = current;
-    const question = askInput.value.trim();
+  function askQuestion(mode) {
+    const { composers, askConn, turns, thread, body } = current;
+    const { input } = composers[mode];
+    const question = input.value.trim();
     if (!question || askConn) return;
-    askInput.value = "";
-    fitInput();
+    input.value = "";
+    fitInput(input);
     const turn = {
+      mode,
       question,
       answer: null,
       cut: false,
       sent: null,
       missed: null,
-      ...buildTurn(question),
+      ...buildTurn(question, mode),
     };
     turns.push(turn);
     thread.append(turn.node);
@@ -738,11 +792,44 @@
   }
 
   // Поле растёт по тексту до max-height из STYLE, дальше прокручивается.
-  function fitInput() {
-    const { askInput } = current;
-    askInput.style.height = "auto";
-    const borders = askInput.offsetHeight - askInput.clientHeight;
-    askInput.style.height = `${askInput.scrollHeight + borders}px`;
+  function fitInput(input) {
+    input.style.height = "auto";
+    const borders = input.offsetHeight - input.clientHeight;
+    input.style.height = `${input.scrollHeight + borders}px`;
+  }
+
+  function buildComposer(mode, placeholder, hint) {
+    const box = el("div", "ask");
+    const row = el("div", "ask-row");
+    const input = el("textarea");
+    input.rows = 1;
+    input.maxLength = MAX_QUESTION;
+    input.placeholder = placeholder;
+    input.setAttribute("aria-label", placeholder);
+    input.addEventListener("input", () => fitInput(input));
+    input.addEventListener("keydown", (e) => {
+      if (e.isComposing) return;
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        askQuestion(mode);
+      } else if (e.key === "Escape" && input.value) {
+        // Первый Esc стирает набранное, следующий закрывает панель.
+        e.stopPropagation();
+        input.value = "";
+        fitInput(input);
+      }
+    });
+    const button = el("button", "send", "Ask");
+    button.setAttribute("aria-label", mode === "chat" ? "Ask freely" : "Ask from the text");
+    button.addEventListener("click", () => {
+      // Кнопка отключится на время ответа — оставляем фокус в поле.
+      input.focus();
+      askQuestion(mode);
+    });
+    row.append(input, button);
+    const hintNode = el("div", "note", hint);
+    box.append(row, hintNode);
+    return { box, input, button, hint: hintNode };
   }
 
   function close() {
@@ -801,35 +888,11 @@
     const foot = el("div", "foot");
     foot.hidden = true;
 
-    const ask = el("div", "ask");
-    const askInput = el("textarea");
-    askInput.rows = 1;
-    askInput.maxLength = MAX_QUESTION;
-    askInput.placeholder = words.ask;
-    askInput.setAttribute("aria-label", words.ask);
-    askInput.addEventListener("input", () => fitInput());
-    askInput.addEventListener("keydown", (e) => {
-      if (e.isComposing) return;
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        askQuestion();
-      } else if (e.key === "Escape" && askInput.value) {
-        // Esc в поле с текстом стирает набранное, а панель с перепиской закроет следующий Esc
-        e.stopPropagation();
-        askInput.value = "";
-        fitInput();
-      }
-    });
-    const askBtn = el("button", "send", "Ask");
-    // фокус — в поле до отправки: кнопку на время ответа отключаем, и фокус с неё ушёл бы на
-    // страницу
-    askBtn.addEventListener("click", () => {
-      askInput.focus();
-      askQuestion();
-    });
-    ask.append(askInput, askBtn);
-
-    panel.append(head, bar, body, foot, ask);
+    const composers = {
+      ask: buildComposer("ask", words.ask, "Answers only from the text"),
+      chat: buildComposer("chat", "Ask freely…", "Uses the text and its own knowledge; web search can be enabled in Settings"),
+    };
+    panel.append(head, bar, body, foot, composers.ask.box, composers.chat.box);
     shadow.append(panel);
     // Клавиши из панели на страницу не пускаем: пока пишут вопрос, срабатывали бы горячие
     // клавиши сайта. Esc закрывает панель — только когда фокус в ней: на странице Esc может быть
@@ -849,9 +912,7 @@
       summaryBox,
       thread,
       foot,
-      ask,
-      askInput,
-      askBtn,
+      composers,
       resetBtn,
       copyBtn,
       modeBtns,
@@ -900,7 +961,7 @@
     setMode(asking ? null : (initial ?? DEFAULT_LENGTH));
     document.documentElement.append(current.host);
     if (!current.source) {
-      showControls(false); // спрашивать и сбрасывать — когда будут субтитры
+      showControls(false); // вопросы по видео — когда будут субтитры
     } else if (current.source.text.length < MIN_CHARS) {
       showControls(false);
       showMessage("status", words.tooShort, false);

@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="options.css" />
     <script type="module" src="options.js"></script>
     <script type="module" src="../dub/options.js"></script>
+    <script type="module" src="../summary/options.js"></script>
   </head>
   <body>
     <main>
@@ -38,6 +39,29 @@
             <span>Translation language</span>
             <select id="targetLang"></select>
           </label>
+        </section>
+
+        <section>
+          <h2>Web search in Ask freely</h2>
+          <label class="field">
+            <input id="summaryWebEnabled" type="checkbox" />
+            Search the web automatically when needed
+          </label>
+          <div class="field">
+            <label for="summarySearxngUrl">SearXNG address</label>
+            <div class="row">
+              <input id="summarySearxngUrl" type="url" placeholder="http://127.0.0.1:8888" spellcheck="false" />
+              <button id="webCheck" type="button">Check</button>
+            </div>
+          </div>
+          <small class="help">
+            Searches go through your SearXNG server; answers use your selected Ollama model.
+            No API key is needed. SearXNG must allow JSON search
+            (<code>search.formats: [html, json]</code> in <code>settings.yml</code>).
+            Check runs a sample search. Answers use search excerpts, not full page downloads.
+            Requires a model with tool support and a context of at least 8192.
+          </small>
+          <p id="web-status" class="status" role="status"></p>
         </section>
 
         <section>

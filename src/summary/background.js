@@ -8,8 +8,9 @@
 // summarize { text, title, length, kind, fresh } — краткое содержание; fresh: true — заметки по
 // частям этого текста считать заново, не из кэша (после «Сбросить» в панели); ask
 // { text, title, kind, question, summary, history } — вопрос по тексту, summary — краткое
-// содержание из панели или ""; history — прошлые
-// вопросы и ответы [{ question, answer }] по порядку; clickbait { text, title, length, summary,
+// содержание из панели или ""; chat — те же поля, свободный ответ с контекстом текста;
+// history — прошлые вопросы и ответы только того же режима [{ question, answer }] по порядку;
+// clickbait { text, title, length, summary,
 // model } — кликбейт ли название видео, summary — готовое краткое содержание длины length, model —
 // модель, которая его написала; ping. kind — "video" (промпты для расшифровки видео) или любое
 // другое — промпты для страницы. Все запросы по одному сообщению — к одной модели: у clickbait —
@@ -27,8 +28,10 @@
 // clickbait — result { clickbait, reason }; error { code, message }, у субтитров code — из
 // pageCaptions (lib/youtube-captions.js); stopped — «Стоп».
 // Панель закрыли или сменили режим — порт отключился — запрос к Ollama отменён.
+// У chat ещё web-status { enabled }, progress { step: "web-search", detail },
+// в result — sources [{ id, title, url }], webLimited. Ключ API остаётся только в background.
 
-import { ErrorCode, OllamaError } from "../lib/ollama.js";
+import { ErrorCode, OllamaError, showModel } from "../lib/ollama.js";
 import { stripThinking } from "../lib/parse.js";
 import { getSettings } from "../lib/settings.js";
 import { chatWithRetry, toOllamaError } from "../lib/translate.js";
@@ -40,6 +43,7 @@ import { pageCaptions, parseJson3 } from "../lib/youtube-captions.js";
 import {
   SUMMARY_LENGTHS,
   buildAnswerRequest,
+  buildChatRequest,
   buildClickbaitRequest,
   buildMergeRequest,
   buildNotesRequest,
@@ -50,6 +54,8 @@ import {
   summaryQuestion,
 } from "./lib/prompt.js";
 import { transcriptText } from "./lib/transcript.js";
+import { getWebSettings, parseSearxngUrl } from "./lib/web-settings.js";
+import { publicWebUrl, webChat } from "./lib/web.js";
 import {
   cutText,
   excerptTokens,
@@ -376,7 +382,7 @@ async function notesOf(job, text, { title, lang, kind, budget, numCtx, model, fr
 // Последний запрос — тот, чей ответ панель показывает по мере генерации. Модель начала
 // рассуждать — панели progress think, само рассуждение — в console.debug.
 // numCtx, model — см. ask. → { text, cut }, после рассуждения ещё thinkMs
-async function complete(job, build, { numCtx, model }) {
+async function complete(job, build, { numCtx, model, run }) {
   const partial = partialSender(job.port);
   let thinkStart = 0; // первый кусок рассуждения
   let thinkEnd = 0; // первый кусок ответа после него
@@ -390,12 +396,17 @@ async function complete(job, build, { numCtx, model }) {
     partial.push(content);
   };
   try {
-    const { content, thinking, doneReason } = await ask(job, build, {
-      numCtx,
-      model,
+    const callbacks = {
       onContent,
       onThinking,
-    });
+      onProgress(progress) {
+        partial.cancel(); // промежуточный ответ не должен затереть статус поиска
+        safePost(job.port, { type: "progress", ...progress });
+      },
+    };
+    const { content, thinking, doneReason, sources, webLimited } = run
+      ? await run(callbacks)
+      : await ask(job, build, { numCtx, model, ...callbacks });
     if (thinking) console.debug(`[ot] рассуждение модели:\n${thinking}`);
     const cut = doneReason === "length";
     // пусто и обрезано — модель упёрлась в num_ctx, ещё рассуждая
@@ -408,8 +419,9 @@ async function complete(job, build, { numCtx, model }) {
       throw new OllamaError(ErrorCode.BAD_RESPONSE, message);
     }
     const text = content.trim();
-    if (!thinkStart) return { text, cut };
-    return { text, cut, thinkMs: (thinkEnd || Date.now()) - thinkStart };
+    const result = { text, cut, ...(sources ? { sources, webLimited } : {}) };
+    if (!thinkStart) return result;
+    return { ...result, thinkMs: (thinkEnd || Date.now()) - thinkStart };
   } finally {
     partial.cancel();
   }
@@ -504,6 +516,65 @@ async function answer(job, { text, title, kind, question, summary, history }) {
   return found?.missed ? { ...result, missed: found.missed, parts: found.parts } : result;
 }
 
+// Свободный разговор: длинный текст — через общие с кратким содержанием заметки, короткий —
+// целиком. Поиск выписок к вопросу здесь не нужен: вопрос может быть вообще не по тексту.
+async function converse(job, { text, title, kind, question, summary, history }) {
+  const { numCtx, targetLang: lang, model, ollamaUrl } = await getSettings();
+  const { summaryWebEnabled: web, summarySearxngUrl } = await getWebSettings();
+  safePost(job.port, { type: "web-status", enabled: web });
+  if (web) {
+    job.queued = 1;
+    const url = parseSearxngUrl(summarySearxngUrl);
+    if (!url) {
+      throw new OllamaError(ErrorCode.BAD_RESPONSE, "Enter a valid SearXNG base URL in Settings.");
+    }
+    if (!(await chrome.permissions.contains({ origins: [`${url.origin}/*`] }))) {
+      throw new OllamaError(ErrorCode.BAD_RESPONSE, `Allow access to SearXNG at ${url.origin} by saving the web search settings again.`);
+    }
+    if (numCtx < 8192) {
+      throw new OllamaError(ErrorCode.BAD_RESPONSE, "Automatic web search needs a context (num_ctx) of at least 8192. Increase it in Settings.");
+    }
+    if (!model) throw new OllamaError(ErrorCode.MODEL_NOT_FOUND, "No model selected in the popup");
+    const { capabilities } = await showModel(ollamaUrl, model, { signal: job.controller.signal });
+    if (!capabilities.includes("tools")) {
+      throw new OllamaError(ErrorCode.BAD_RESPONSE, "This model does not support tools. Choose a model with tool support or disable automatic web search in Settings.");
+    }
+  }
+  // Веб-результатам и схемам инструментов оставляем отдельное место в том же num_ctx.
+  const budget = web ? Math.floor(inputChars(numCtx) * 0.28) : inputChars(numCtx);
+  const used = cutText(text, MAX_CHARS);
+  safePost(job.port, { type: "source", used: used.length, total: text.length, model });
+  const fromNotes = used.length > budget;
+  const source = fromNotes
+    ? await notesOf(job, used, { title, lang, kind, budget, numCtx, model })
+    : used;
+  const past = summary ? [{ question: summaryQuestion(kind), answer: summary }, ...history] : history;
+  const historyBudget = web
+    ? Math.floor(inputChars(numCtx) * 0.1)
+    : historyChars(numCtx) + budget - source.length - question.length;
+  const turns = fitTurns(past, historyBudget);
+  job.queued = web ? 1 : 0; // поиск между запросами модели тоже должен останавливаться кнопкой Stop
+  if (fromNotes) safePost(job.port, { type: "progress", step: "final" });
+  const pageUrl = web ? publicWebUrl(job.port.sender?.url) : null;
+  const build = (ctx) => buildChatRequest(
+    { text: source, title, question, turns, lang, kind, fromNotes, web, pageUrl }, ctx,
+  );
+  return complete(job, build, {
+    numCtx,
+    model,
+    ...(web ? {
+      run: (callbacks) => webChat({
+        build,
+        ask: (request, handlers) => ask(job, request, { numCtx, model, ...handlers }),
+        searxngUrl: summarySearxngUrl,
+        numCtx,
+        signal: job.controller.signal,
+        ...callbacks,
+      }),
+    } : {}),
+  });
+}
+
 // Кликбейт ли название видео: вопрос вдогонку к краткому содержанию длины length — тот же текст,
 // те же заметки по частям из кэша, см. buildClickbaitRequest. Видео длиннее MAX_CHARS не
 // проверяем: развязка может быть в непрочитанном конце. model — модель, которая написала
@@ -558,7 +629,7 @@ registerQueue(() => {
 const isString = (value) => typeof value === "string";
 const isTurn = (turn) => isString(turn?.question) && isString(turn?.answer);
 
-// Сообщение панели → промис summarize, answer или clickbait; null — не запрос (ping) или
+// Сообщение панели → промис summarize, answer, converse или clickbait; null — не запрос (ping) или
 // битое.
 function start(job, msg) {
   if (!isString(msg?.text)) return null;
@@ -573,8 +644,9 @@ function start(job, msg) {
     const model = isString(msg.model) ? msg.model : "";
     return clickbait(job, { text: msg.text, title, length, summary: msg.summary, model });
   }
-  if (msg.type === "ask" && isString(msg.question) && msg.question.trim()) {
-    return answer(job, {
+  if (["ask", "chat"].includes(msg.type) && isString(msg.question) && msg.question.trim()) {
+    const respond = msg.type === "chat" ? converse : answer;
+    return respond(job, {
       text: msg.text,
       title,
       kind,

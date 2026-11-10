@@ -193,6 +193,7 @@ export async function chat(baseUrl, body, opts = {}) {
   let buffer = "";
   let content = "";
   let thinking = "";
+  const toolCalls = [];
   let final = null;
 
   const handleLine = (line) => {
@@ -213,6 +214,9 @@ export async function chat(baseUrl, body, opts = {}) {
     if (delta) {
       content += delta;
       opts.onContent?.(content);
+    }
+    if (Array.isArray(chunk.message?.tool_calls)) {
+      toolCalls.push(...chunk.message.tool_calls);
     }
     if (chunk.done) final = chunk;
   };
@@ -251,6 +255,13 @@ export async function chat(baseUrl, body, opts = {}) {
   return {
     content,
     thinking,
+    toolCalls,
+    message: {
+      role: "assistant",
+      content,
+      ...(thinking ? { thinking } : {}),
+      ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+    },
     evalCount: final.eval_count ?? 0,
     evalDuration: final.eval_duration ?? 0, // наносекунды
     doneReason: final.done_reason ?? "",

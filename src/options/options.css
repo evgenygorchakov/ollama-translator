@@ -98,6 +98,7 @@ code {
 }
 
 input[type="url"],
+input[type="password"],
 input[type="number"],
 select,
 textarea {
