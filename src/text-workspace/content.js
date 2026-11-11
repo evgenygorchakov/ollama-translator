@@ -5,12 +5,14 @@
   ns.textWorkspace?.dispose();
   const config = ns.textWorkspaceConfig;
   const MARGIN = 12;
+  const POINTER_GAP = 12;
   let disposed = false;
   let enabled = false;
   let cursorEnabled = true;
   let settingsVersion = 0;
   let current = null;
   let dragging = false;
+  let selectionPointer = null;
   let selectionTimer = 0;
   let placeFrame = 0;
   let dismissed = null;
@@ -65,6 +67,8 @@
 
   function readSelection() {
     if (!enabled || disposed || dragging || document.activeElement === current?.host) return;
+    const pointer = selectionPointer;
+    selectionPointer = null;
     const selection = window.getSelection();
     const text = selection?.toString().trim();
     if (!text || !selection.rangeCount || selection.isCollapsed) {
@@ -80,6 +84,8 @@
     if (sameSelection(candidate, current) || sameSelection(candidate, dismissed)) return;
     const rect = range.getBoundingClientRect();
     if (!rect.width && !rect.height) return;
+    // Смещение относительно текста сохраняет привязку при прокрутке, в том числе внутри блока.
+    candidate.pointerOffset = pointer ? { x: pointer.x - rect.left, y: pointer.y - rect.top } : null;
     close(false);
     dismissed = null;
     current = build(candidate);
@@ -105,9 +111,21 @@
     const topEdge = (viewport?.offsetTop ?? 0) + MARGIN;
     const rightEdge = leftEdge + (viewport?.width ?? document.documentElement.clientWidth) - 2 * MARGIN;
     const bottomEdge = topEdge + (viewport?.height ?? window.innerHeight) - 2 * MARGIN;
-    let left = Math.min(Math.max(rect.right - 28, leftEdge), Math.max(leftEdge, rightEdge - width));
+    let left = rect.right - 28;
     let top = rect.bottom + 8;
-    if (top + height > bottomEdge && rect.top - height - 8 >= topEdge) top = rect.top - height - 8;
+    if (state.pointerOffset) {
+      const bounds = state.range.getBoundingClientRect();
+      const x = bounds.left + state.pointerOffset.x;
+      const y = bounds.top + state.pointerOffset.y;
+      // Не перекрываем курсор: иначе hover сразу откроет панель без движения мыши.
+      left = x + POINTER_GAP;
+      top = y + POINTER_GAP;
+      if (left + width > rightEdge) left = x - width - POINTER_GAP;
+      if (top + height > bottomEdge) top = y - height - POINTER_GAP;
+    } else if (top + height > bottomEdge && rect.top - height - 8 >= topEdge) {
+      top = rect.top - height - 8;
+    }
+    left = Math.min(Math.max(left, leftEdge), Math.max(leftEdge, rightEdge - width));
     top = Math.min(Math.max(top, topEdge), Math.max(topEdge, bottomEdge - height));
     if (!state.range.startContainer.isConnected) left = Math.max(leftEdge, rightEdge - width);
     state.host.style.setProperty("left", `${left}px`, "important");
@@ -422,16 +440,22 @@
     if (current && event.composedPath().includes(current.host)) return;
     close(false);
     dismissed = null;
+    selectionPointer = null;
     dragging = event.button === 0;
   }
 
   function pointerUp(event) {
     dragging = false;
     if (current && event.composedPath().includes(current.host)) return;
-    if (event.button === 0) scheduleSelection();
+    if (event.type === "pointerup" && event.button === 0) {
+      selectionPointer = event.pointerType === "mouse" || event.pointerType === "pen"
+        ? { x: event.clientX, y: event.clientY } : null;
+      scheduleSelection();
+    }
   }
 
   function keyDown(event) {
+    selectionPointer = null;
     if (event.key === "Escape" && current) {
       event.preventDefault();
       event.stopPropagation();
@@ -463,7 +487,7 @@
     } catch { dispose(); }
   }
 
-  const pageHide = () => { dragging = false; close(false); };
+  const pageHide = () => { dragging = false; selectionPointer = null; close(false); };
   function dispose() {
     if (disposed) return;
     disposed = true;

@@ -14,6 +14,8 @@ The switch applies immediately to open and future HTTP(S) pages; it is off by de
 Select text, then hover over **✦ Ask** to reveal a compact conversation panel. Click the
 button (or press **Alt+Enter** while it is visible) to focus the question field. The violet
 cursor can be switched off separately. Animations respect reduced-motion preferences.
+The button appears beside the pointer where you finish selecting, shifts inward near window
+edges, and follows the text when scrolling. Keyboard selections place it beside the selected text.
 
 Ask a question, or use Explain / Summarize / Rewrite to fill the question field. **Enter**
 sends; **Shift+Enter** inserts a new line. Answers stream into the panel, with **Stop**,
