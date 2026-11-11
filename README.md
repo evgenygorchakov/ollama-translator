@@ -7,6 +7,44 @@ The summary panel has two question fields: “Ask about the page…” answers o
 text; “Ask freely…” can also use the model’s own knowledge and reasoning. Each keeps its own
 conversation history. Both use the selected Ollama model and response language.
 
+## Text workspace (experimental)
+
+In Settings, turn on **Text workspace** and allow website access when the browser asks.
+The switch applies immediately to open and future HTTP(S) pages; it is off by default.
+Select text, then hover over **✦ Ask** to reveal a compact conversation panel. Click the
+button (or press **Alt+Enter** while it is visible) to focus the question field. The violet
+cursor can be switched off separately. Animations respect reduced-motion preferences.
+
+Ask a question, or use Explain / Summarize / Rewrite to fill the question field. **Enter**
+sends; **Shift+Enter** inserts a new line. Answers stream into the panel, with **Stop**,
+**Copy**, **Reset** and a context-usage indicator. Only the selection and this panel's
+completed questions and answers go to the selected Ollama model. No request is made merely
+by selecting or hovering. The panel has no web search.
+
+Each selection starts an independent conversation. Follow-up questions keep that selection
+and its history; Reset clears the conversation but keeps the selection. Closing the panel
+(Escape, × or a click outside), selecting another passage, or disabling the mode cancels
+the request and discards the conversation. History stays in memory, never on disk, and is
+not shared with translations or either page-question field. This uses the same loaded model,
+not a second model instance or a separate context-length setting.
+
+Selections are limited to 12,000 characters and questions to 2,000. The loaded model's
+actual context can impose a smaller limit; an oversized selection is rejected rather than
+silently shortened. Recent complete exchanges are kept within an estimated history budget,
+up to 24 exchanges / 64,000 characters. The panel warns when older messages are omitted or
+an answer reaches its generation limit. Context estimates are approximate; Ollama's final
+token counts appear after a completed answer.
+
+The automatic button is for ordinary page text, not form fields or editable areas. Browser
+internal pages, extension-store pages and the built-in PDF viewer do not allow this UI.
+
+The feature lives entirely in [`src/text-workspace`](src/text-workspace). To remove it,
+turn it off first, delete that directory, remove its import from `src/background.js` and
+its script tag from `src/options/options.html`, then reload the extension and open pages.
+It has no dependencies on the translation, summary or dubbing modules.
+
+## Web search
+
 For automatic web search in **Ask freely**, run [SearXNG](https://docs.searxng.org/), open the
 extension's Settings, enable “Search the web automatically when needed”, enter the SearXNG base
 address (default `http://127.0.0.1:8888`), and press Save. Allow access to that address when the

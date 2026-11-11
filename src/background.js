@@ -6,6 +6,7 @@ import "./page/background.js"; // перевод всей страницы: popu
 import "./selection/background.js"; // перевод выделенного: меню по правому клику на выделении
 import "./dub/background.js"; // озвучка YouTube-видео: кнопка в плеере
 import "./summary/background.js"; // краткое содержание: popup, меню страницы и выделенного
+import "./text-workspace/background.js"; // экспериментальный диалог по выделенному тексту
 import { activity, stopAll } from "./lib/stop.js";
 
 // «Стоп» (popup и Alt+Shift+S) и работа модели для popup — здесь, а не в модулях: так они
