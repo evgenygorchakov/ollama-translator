@@ -122,10 +122,10 @@
       const x = bounds.left + state.pointerOffset.x;
       const y = bounds.top + state.pointerOffset.y;
       // Не перекрываем курсор: иначе hover сразу откроет панель без движения мыши.
-      left = x + POINTER_GAP;
-      top = y + POINTER_GAP;
-      if (left + width > rightEdge) left = x - width - POINTER_GAP;
-      if (top + height > bottomEdge) top = y - height - POINTER_GAP;
+      left = x - width - POINTER_GAP;
+      top = y - height - POINTER_GAP;
+      if (left < leftEdge) left = x + POINTER_GAP;
+      if (top < topEdge) top = y + POINTER_GAP;
     } else if (top + height > bottomEdge && rect.top - height - 8 >= topEdge) {
       top = rect.top - height - 8;
     }
