@@ -14,7 +14,7 @@ import { modelOptions } from "../lib/model-options.js";
 import { ensureHostPermission, parseServerUrl } from "../lib/host-permission.js";
 
 const $ = (id) => document.getElementById(id);
-const NUMBER_KEYS = ["batchMaxItems", "batchMaxChars", "concurrency", "temperature", "numCtx"];
+const NUMBER_KEYS = ["batchMaxItems", "batchMaxChars", "concurrency", "temperature"];
 
 let settings;
 let models = [];

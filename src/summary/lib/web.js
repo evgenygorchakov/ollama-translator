@@ -57,13 +57,14 @@ function argumentsOf(call) {
 
 // Метаданные вызовов сохраняем целиком. Текст результатов и рассуждений делит оставшийся
 // бюджет: после нескольких раундов старые результаты не вытесняют вопрос и ответ.
-function fitMessages(messages, budget) {
+function fitMessages(messages, budget, onTrim) {
   const fixed = JSON.stringify(messages.map(({ content, thinking, ...rest }) => rest)).length;
   if (fixed > budget / 2) {
-    throw failure("Web tool arguments filled the context. Try a more focused question or increase num_ctx in Settings.");
+    throw failure("Web tool arguments filled the context. Try a more focused question or increase context length in Ollama.");
   }
   const strings = messages.flatMap((message) => [message.content ?? "", message.thinking ?? ""]);
   const fitted = fitExcerpts(strings, Math.max(0, budget - fixed));
+  if (fitted.some((text, i) => text.length < strings[i].length)) onTrim();
   return messages.map((message, i) => ({
     ...message,
     content: fitted[2 * i],
@@ -72,7 +73,7 @@ function fitMessages(messages, budget) {
 }
 
 // ask(build, callbacks) берёт слот только на запрос модели; HTTP-поиск слот не держит.
-export async function webChat({ build, ask, searxngUrl, numCtx, signal, onProgress, onContent, onThinking }) {
+export async function webChat({ build, ask, searxngUrl, numCtx, signal, onProgress, onContent, onThinking, onTrim = () => {} }) {
   const sources = new Map();
   const messages = [];
   const cache = new Map();
@@ -85,7 +86,9 @@ export async function webChat({ build, ask, searxngUrl, numCtx, signal, onProgre
     }
     const source = sources.get(url);
     const head = `[${source.id}] ${source.title}\nURL: ${url}\n`;
-    return head + cutText(content, Math.max(0, limit - head.length));
+    const excerpt = cutText(content, Math.max(0, limit - head.length));
+    if (excerpt.length < content.length) onTrim();
+    return head + excerpt;
   }
 
   async function execute(call) {
@@ -131,7 +134,7 @@ export async function webChat({ build, ask, searxngUrl, numCtx, signal, onProgre
         ...(!finished ? { tools: TOOLS } : {}),
         messages: [
           ...base.messages,
-          ...fitMessages(messages, budget),
+          ...fitMessages(messages, budget, onTrim),
           ...(finished ? [{ role: "system", content: "The web tool budget is exhausted. Answer now using the evidence already obtained, cite source IDs, and clearly state any gaps. Do not request more tools." }] : []),
         ],
       };
@@ -144,7 +147,7 @@ export async function webChat({ build, ask, searxngUrl, numCtx, signal, onProgre
       };
     }
     if (result.doneReason === "length") {
-      throw failure("The model ran out of context while requesting web tools. Increase num_ctx in Settings.");
+      throw failure("The model reached a length limit while requesting web tools. Try a more focused question or check context length in Ollama.");
     }
     if (finished || result.toolCalls.length > MAX_CALLS) {
       throw failure("The model exceeded the web search limit. Try a more focused question.");

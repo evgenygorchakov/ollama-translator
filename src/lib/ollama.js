@@ -116,11 +116,22 @@ export async function showModel(baseUrl, model, opts = {}) {
 
 // Загружает модель в память заранее, чтобы первый батч не ждал загрузки.
 export async function warmUp(baseUrl, model, { keepAlive = "30m", ...opts } = {}) {
-  await request(baseUrl, "/api/generate", {
+  return readJson(await request(baseUrl, "/api/generate", {
     ...opts,
     method: "POST",
-    body: { model, prompt: "", keep_alive: keepAlive },
-  });
+    body: { model, prompt: "", stream: false, keep_alive: keepAlive },
+  }));
+}
+
+// Фактически выделенное окно загруженной модели, а не её теоретический максимум из /api/show.
+// null — модель выгружена или версия Ollama не сообщает длину контекста.
+export async function modelContextLength(baseUrl, model, opts = {}) {
+  const data = await readJson(await request(baseUrl, "/api/ps", { timeoutMs: 5000, ...opts }));
+  const running = (data.models ?? []).find((m) =>
+    [m.name, m.model].some((name) => name === model || name === `${model}:latest`),
+  );
+  const length = running?.context_length;
+  return Number.isSafeInteger(length) && length > 0 ? length : null;
 }
 
 // Выгружает модель из памяти (VRAM и RAM). Если её ещё доделывают оборванные запросы, Ollama
@@ -262,7 +273,10 @@ export async function chat(baseUrl, body, opts = {}) {
       ...(thinking ? { thinking } : {}),
       ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
     },
-    evalCount: final.eval_count ?? 0,
+    promptEvalCount: Number.isSafeInteger(final.prompt_eval_count) && final.prompt_eval_count >= 0
+      ? final.prompt_eval_count : null,
+    evalCount: Number.isSafeInteger(final.eval_count) && final.eval_count >= 0
+      ? final.eval_count : null,
     evalDuration: final.eval_duration ?? 0, // наносекунды
     doneReason: final.done_reason ?? "",
   };

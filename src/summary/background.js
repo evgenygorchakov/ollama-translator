@@ -18,10 +18,12 @@
 // Отсюда → панели: transcript { title, text, kind, lang } — субтитры: kind — "asr"
 // (автоматические) или "manual", lang — их язык; source { used, total, model } — сколько символов
 // текста ушло модели и какой;
+// context { context: { total, usage: { input, output, used, total } | null } } — реальное окно
+// и токены одного завершённого запроса; usage: null — точного расхода ещё нет.
 // progress { step: "part", part, parts } | { step: "merge" } | { step: "final" } — длинный текст:
 // заметки по частям, сведение заметок, итог; { step: "think" } — модель начала рассуждать; у
 // вопроса — { step: "search", part, parts } | { step: "final" }: поиск по частям, ответ;
-// partial { text } — ответ по мере генерации; result { text, cut, thinkMs?, missed?, parts? } —
+// partial { text } — ответ по мере генерации; result { text, cut, context, thinkMs?, missed?, parts? } —
 // готово, cut — ответ упёрся в num_ctx; thinkMs — сколько модель рассуждала, от первого куска
 // рассуждения до первого куска ответа, у запросов без рассуждения поля нет; missed — у вопроса
 // по длинному тексту: в скольких из parts частей модель упёрлась в предел, ничего не выписав; у
@@ -59,6 +61,7 @@ import { publicWebUrl, webChat } from "./lib/web.js";
 import {
   cutText,
   excerptTokens,
+  estimatedTokens,
   fitExcerpts,
   fitTurns,
   historyChars,
@@ -77,6 +80,7 @@ const PANEL_SCRIPTS = [
   "src/shared/keepalive-port.js",
   "src/shared/shadow-host.js",
   "src/shared/clipboard.js",
+  "src/shared/context-usage.js",
   "src/summary/lib/format.js",
   "src/summary/extract.js",
   "src/summary/panel.js",
@@ -268,18 +272,74 @@ function withoutThinking(content) {
   return stripThinking(content).replace(/<think>[\s\S]*$/i, "");
 }
 
-// Каждый запрос — со своим слотом (общий с переводом лимит, перед очередью перевода страниц):
-// между частями длинного текста успевает перевод выделенного. numCtx — num_ctx, под который
-// посчитан бюджет текста, model — модель, которой пишутся заметки и ответ (её видно в панели):
-// запрос идёт с ними, а не с тем, что в настройках сейчас.
+// Сначала загружаем модель с настройками Ollama и узнаём реальное окно для бюджета текста.
+// Сервер и модель фиксируем на всю операцию, включая промежуточные запросы.
+async function prepareJob(job, model) {
+  const settings = await getSettings();
+  model ||= settings.model;
+  if (!model) throw new OllamaError(ErrorCode.MODEL_NOT_FOUND, "No model selected in the popup");
+  job.ollamaUrl = settings.ollamaUrl;
+  job.queued = 1;
+  safePost(job.port, { type: "progress", step: "context" });
+  const numCtx = await withPrioritySlot(
+    { signal: job.controller.signal, model, ollamaUrl: job.ollamaUrl },
+    (ctx) => ctx.numCtx,
+  );
+  safePost(job.port, { type: "context", context: { total: numCtx, usage: null } });
+  if (job.dialogue) reportDialogue(job, { total: numCtx, usage: null });
+  if (!numCtx) {
+    throw new OllamaError(ErrorCode.BAD_RESPONSE,
+      "Ollama did not report the loaded model's context length. Update Ollama and try again.");
+  }
+  if (numCtx < 2048) {
+    throw new OllamaError(ErrorCode.BAD_RESPONSE,
+      "Summaries and questions need at least 2048 context tokens. Increase context length in Ollama.");
+  }
+  return { ...settings, model, numCtx };
+}
+
+// У диалога отдельный канал: заметки по длинной странице, веб-раунды и другие операции
+// не заменяют его точный счётчик. Факты сокращения сохраняем и между этапами запроса.
+function reportDialogue(job, patch) {
+  job.dialogContext = { ...job.dialogContext, ...patch };
+  safePost(job.port, { type: "dialog-context", context: job.dialogContext });
+  return job.dialogContext;
+}
+
+function fitHistory(job, past, max, { stage = "answer", web = false } = {}) {
+  const { turns, history } = fitTurns(past, max);
+  const previous = job.dialogContext?.history;
+  const limitingBudget = Math.min(history.budgetChars, previous?.limitingBudget ?? Infinity);
+  const limitingStage = previous && previous.limitingBudget < history.budgetChars
+    ? previous.limitingStage : stage;
+  reportDialogue(job, {
+    history: {
+      ...history, stage, web, limitingBudget, limitingStage,
+      usedEstimate: estimatedTokens(history.usedChars),
+      budgetEstimate: estimatedTokens(limitingBudget),
+    },
+    omitted: job.dialogContext?.omitted || history.omittedTurns > 0,
+    shortened: job.dialogContext?.shortened || history.shortenedAnswers > 0,
+  });
+  return turns;
+}
+
+// Каждый запрос — со своим слотом: между частями длинного текста успевает перевод выделенного.
+// numCtx — окно, под которое уже посчитан бюджет, а не параметр запроса к Ollama.
 // onContent, onThinking — см. chat в lib/ollama.js. И onContent, и в ответе
 // content — без рассуждения. → { content, thinking, doneReason }
 function ask(job, build, { numCtx, model, onContent, onThinking } = {}) {
-  return withPrioritySlot({ signal: job.controller.signal, model }, async (ctx) => {
-    const res = await chatWithRetry(build(numCtx ? { ...ctx, numCtx } : ctx), ctx, {
+  return withPrioritySlot({ signal: job.controller.signal, model, ollamaUrl: job.ollamaUrl }, async (ctx) => {
+    if (numCtx && (!ctx.numCtx || ctx.numCtx < numCtx)) {
+      throw new OllamaError(ErrorCode.BAD_RESPONSE,
+        "Ollama's context length changed while reading the text. Try again to resize the text and history.");
+    }
+    if (!job.dialogue) safePost(job.port, { type: "context", context: { total: ctx.numCtx, usage: null } });
+    const res = await chatWithRetry(build(ctx), ctx, {
       onContent: onContent && ((content) => onContent(withoutThinking(content))),
       onThinking,
     });
+    if (!job.dialogue) safePost(job.port, { type: "context", context: res.context });
     return { ...res, content: withoutThinking(res.content) };
   });
 }
@@ -352,7 +412,7 @@ async function mergeNotes(job, text, { title, lang, kind, budget, numCtx, model 
 // Длинный текст → заметки по частям, сведённые так, чтобы влезли в один запрос. fresh — не брать
 // заметки из кэша, см. notesEntry.
 async function notesOf(job, text, { title, lang, kind, budget, numCtx, model, fresh }) {
-  const key = `${model}|${lang}|${kind}|summary|${budget}|${text}`;
+  const key = `${job.ollamaUrl}|${model}|${lang}|${kind}|summary|${budget}|${text}`;
   const { entry, parts } = await notesEntry(key, text, budget, fresh);
   if (entry.merged !== null) return entry.merged;
   const { notes } = entry;
@@ -404,22 +464,40 @@ async function complete(job, build, { numCtx, model, run }) {
         safePost(job.port, { type: "progress", ...progress });
       },
     };
-    const { content, thinking, doneReason, sources, webLimited } = run
+    const { content, thinking, doneReason, sources, webLimited, context: measured } = run
       ? await run(callbacks)
       : await ask(job, build, { numCtx, model, ...callbacks });
     if (thinking) console.debug(`[ot] рассуждение модели:\n${thinking}`);
     const cut = doneReason === "length";
+    let context = measured;
+    if (job.dialogue) {
+      const history = job.dialogContext.history;
+      // История уже входит в measured. Это отдельная оценка места для СЛЕДУЮЩЕГО вопроса,
+      // включая новый ответ и ссылки, которые панель добавит к нему при отправке.
+      const sourceChars = sources?.length
+        ? `\n\nSources consulted in this earlier reply:\n${sources.map((s) => `[${s.id}] ${s.title}: ${s.url}`).join("\n")}`.length
+        : 0;
+      context = reportDialogue(job, {
+        ...measured,
+        history: {
+          ...history,
+          ...(content.trim() ? {
+            nextEstimate: estimatedTokens(history.usedChars + job.question.length + content.trim().length + sourceChars),
+          } : {}),
+        },
+      });
+    }
     // пусто и обрезано — модель упёрлась в num_ctx, ещё рассуждая
     if (!content.trim()) {
       const message = !cut
         ? "the model returned an empty response"
         : thinking
-          ? "the model kept reasoning until it ran out of context"
-          : "response cut off: the model ran out of context (num_ctx in settings)";
+          ? "the model reached a length limit while reasoning; check context length in Ollama"
+          : "response cut off: the model reached a length limit; check context length in Ollama";
       throw new OllamaError(ErrorCode.BAD_RESPONSE, message);
     }
     const text = content.trim();
-    const result = { text, cut, ...(sources ? { sources, webLimited } : {}) };
+    const result = { text, cut, context, ...(sources ? { sources, webLimited } : {}) };
     if (!thinkStart) return result;
     return { ...result, thinkMs: (thinkEnd || Date.now()) - thinkStart };
   } finally {
@@ -429,7 +507,7 @@ async function complete(job, build, { numCtx, model, run }) {
 
 // fresh — см. notesOf. → { text, cut }
 async function summarize(job, { text, title, kind, length, fresh }) {
-  const { numCtx, targetLang: lang, model } = await getSettings();
+  const { numCtx, targetLang: lang, model } = await prepareJob(job);
   const budget = inputChars(numCtx);
   const used = cutText(text, MAX_CHARS);
   safePost(job.port, { type: "source", used: used.length, total: text.length, model });
@@ -456,7 +534,7 @@ async function search(job, text, { title, kind, question, past, numCtx, model })
   const budget = inputChars(numCtx);
   const parts = splitText(text, budget);
   const maxTokens = excerptTokens(numCtx);
-  const turns = fitTurns(past, historyChars(numCtx) - question.length);
+  const turns = fitHistory(job, past, historyChars(numCtx) - question.length, { stage: "search" });
   const found = []; // { head, excerpt }
   let missed = 0;
   for (const [i, part] of parts.entries()) {
@@ -486,7 +564,7 @@ async function search(job, text, { title, kind, question, past, numCtx, model })
 // → { text, cut }, у длинного текста ещё missed и parts, если в каких-то частях модель ничего не
 // успела выписать (см. search)
 async function answer(job, { text, title, kind, question, summary, history }) {
-  const { numCtx, targetLang: lang, model } = await getSettings();
+  const { numCtx, targetLang: lang, model } = await prepareJob(job);
   const budget = inputChars(numCtx);
   const used = cutText(text, MAX_CHARS);
   safePost(job.port, { type: "source", used: used.length, total: text.length, model });
@@ -506,7 +584,7 @@ async function answer(job, { text, title, kind, question, summary, history }) {
   const source = found ? found.text : used;
   job.queued = 0;
   if (fromExcerpts) safePost(job.port, { type: "progress", step: "final" });
-  const turns = fitTurns(past, historyChars(numCtx) + budget - source.length - question.length);
+  const turns = fitHistory(job, past, historyChars(numCtx) + budget - source.length - question.length);
   const result = await complete(
     job,
     (ctx) =>
@@ -519,7 +597,7 @@ async function answer(job, { text, title, kind, question, summary, history }) {
 // Свободный разговор: длинный текст — через общие с кратким содержанием заметки, короткий —
 // целиком. Поиск выписок к вопросу здесь не нужен: вопрос может быть вообще не по тексту.
 async function converse(job, { text, title, kind, question, summary, history }) {
-  const { numCtx, targetLang: lang, model, ollamaUrl } = await getSettings();
+  const { numCtx, targetLang: lang, model, ollamaUrl } = await prepareJob(job);
   const { summaryWebEnabled: web, summarySearxngUrl } = await getWebSettings();
   safePost(job.port, { type: "web-status", enabled: web });
   if (web) {
@@ -532,7 +610,7 @@ async function converse(job, { text, title, kind, question, summary, history }) 
       throw new OllamaError(ErrorCode.BAD_RESPONSE, `Allow access to SearXNG at ${url.origin} by saving the web search settings again.`);
     }
     if (numCtx < 8192) {
-      throw new OllamaError(ErrorCode.BAD_RESPONSE, "Automatic web search needs a context (num_ctx) of at least 8192. Increase it in Settings.");
+      throw new OllamaError(ErrorCode.BAD_RESPONSE, "Automatic web search needs at least 8192 context tokens. Increase context length in Ollama.");
     }
     if (!model) throw new OllamaError(ErrorCode.MODEL_NOT_FOUND, "No model selected in the popup");
     const { capabilities } = await showModel(ollamaUrl, model, { signal: job.controller.signal });
@@ -552,7 +630,7 @@ async function converse(job, { text, title, kind, question, summary, history }) 
   const historyBudget = web
     ? Math.floor(inputChars(numCtx) * 0.1)
     : historyChars(numCtx) + budget - source.length - question.length;
-  const turns = fitTurns(past, historyBudget);
+  const turns = fitHistory(job, past, historyBudget, { web });
   job.queued = web ? 1 : 0; // поиск между запросами модели тоже должен останавливаться кнопкой Stop
   if (fromNotes) safePost(job.port, { type: "progress", step: "final" });
   const pageUrl = web ? publicWebUrl(job.port.sender?.url) : null;
@@ -569,6 +647,7 @@ async function converse(job, { text, title, kind, question, summary, history }) 
         searxngUrl: summarySearxngUrl,
         numCtx,
         signal: job.controller.signal,
+        onTrim: () => reportDialogue(job, { webShortened: true }),
         ...callbacks,
       }),
     } : {}),
@@ -585,7 +664,7 @@ async function clickbait(job, { text, title, length, summary, model: summaryMode
     console.debug(`[ot] кликбейт «${title}»: не проверяю, учтено только начало видео`);
     return { clickbait: false, reason: "" };
   }
-  const settings = await getSettings();
+  const settings = await prepareJob(job, summaryModel);
   const { numCtx, targetLang: lang } = settings;
   const model = summaryModel || settings.model;
   const budget = inputChars(numCtx);
@@ -645,6 +724,8 @@ function start(job, msg) {
     return clickbait(job, { text: msg.text, title, length, summary: msg.summary, model });
   }
   if (["ask", "chat"].includes(msg.type) && isString(msg.question) && msg.question.trim()) {
+    job.dialogue = true;
+    job.question = msg.question.trim();
     const respond = msg.type === "chat" ? converse : answer;
     return respond(job, {
       text: msg.text,

@@ -59,7 +59,7 @@
             No API key is needed. SearXNG must allow JSON search
             (<code>search.formats: [html, json]</code> in <code>settings.yml</code>).
             Check runs a sample search. Answers use search excerpts, not full page downloads.
-            Requires a model with tool support and a context of at least 8192.
+            Requires a model with tool support and a context of at least 8192, set in Ollama.
           </small>
           <p id="web-status" class="status" role="status"></p>
         </section>
@@ -83,12 +83,10 @@
               <span>Temperature</span>
               <input id="temperature" type="number" />
             </label>
-            <label class="field">
-              <span>Context (num_ctx)</span>
-              <input id="numCtx" type="number" />
-            </label>
           </div>
           <small class="help">
+            Context length is managed in the Ollama app. The extension uses the loaded model's
+            context and shows token usage in the popup and next to answers.
             More than 1 parallel request only helps if the model fits entirely in VRAM
             (<code>ollama ps</code> → 100% GPU) and <code>OLLAMA_NUM_PARALLEL</code> is set.
           </small>

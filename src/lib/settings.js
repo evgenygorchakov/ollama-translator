@@ -12,7 +12,6 @@ export const DEFAULTS = Object.freeze({
   batchMaxChars: 2500,
   concurrency: 1, // модель не влезает в VRAM целиком — параллельность только мешает
   temperature: 0.1,
-  numCtx: 8192,
   systemPrompt: "", // пусто — встроенный промпт из prompt.js
 });
 
@@ -22,7 +21,6 @@ export const LIMITS = Object.freeze({
   batchMaxChars: { min: 200, max: 8000, step: 100 },
   concurrency: { min: 1, max: 4, step: 1 },
   temperature: { min: 0, max: 1, step: 0.05 },
-  numCtx: { min: 2048, max: 32768, step: 1024 },
 });
 
 // Ollama, к которой расширению разрешено ходить без дополнительного запроса прав.

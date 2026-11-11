@@ -23,7 +23,7 @@
   const MIN_CHARS = 200;
   const MAX_QUESTION = 1000;
   const MARGIN = 8;
-  const CUT_NOTE = "Response cut off: the model ran out of context (num_ctx in settings)";
+  const CUT_NOTE = "Response cut off: the model reached a length limit. Check context length in Ollama.";
 
   // Надписи по source.kind из open(). loading, noCaptions и live — только у видео. title —
   // заголовок краткого содержания, questions — панели без режима.
@@ -145,6 +145,12 @@
     .ask[hidden] { display: none; }
     .ask-row { display: flex; align-items: flex-end; gap: 6px; }
     .ask .note { margin-top: 4px; }
+    .dialog-context { margin-top: 6px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .dialog-context meter { display: block; width: 100%; height: 8px; margin: 2px 0; }
+    .dialog-context meter[hidden], .context-warning[hidden] { display: none; }
+    .context-warning { margin-top: 3px; color: #825400; }
+    .dialog-context[data-level="high"] .context-warning { color: var(--error); }
+    @media (prefers-color-scheme: dark) { .context-warning { color: #e3b341; } }
     textarea {
       flex: 1; box-sizing: border-box; min-width: 0; max-height: 120px; margin: 0;
       padding: 4px 8px; resize: none; overflow-y: auto;
@@ -199,6 +205,41 @@
     return Math.max(1, Math.floor((part / whole) * 100));
   }
 
+  function renderContext(node, context) {
+    node.hidden = !context;
+    if (!context) return;
+    const { text, title } = ns.contextUsage(context);
+    node.textContent = text;
+    node.title = title;
+  }
+
+  function renderDialogue(composer) {
+    const view = ns.dialogueUsage(composer.contextState);
+    const { contextBox, contextText, contextMeter, contextDetail, contextWarning } = composer;
+    contextText.textContent = view.text;
+    contextBox.title = view.title;
+    contextBox.dataset.level = view.level;
+    contextMeter.hidden = view.ratio === null;
+    contextMeter.value = view.ratio ?? 0;
+    contextMeter.setAttribute("aria-valuetext", view.text);
+    contextDetail.textContent = view.detail;
+    contextWarning.textContent = view.warning;
+    contextWarning.hidden = !view.warning;
+  }
+
+  function updateDialogue(mode, patch) {
+    const composer = current.composers[mode];
+    const previous = composer.contextState;
+    composer.contextState = {
+      ...previous, ...patch,
+      // Повтор, следующий вопрос и промежуточный этап не скрывают уже случившееся сокращение.
+      omitted: previous.omitted || patch.omitted,
+      shortened: previous.shortened || patch.shortened,
+      webShortened: previous.webShortened || patch.webShortened,
+    };
+    renderDialogue(composer);
+  }
+
   // status — что идёт сейчас («Пишу…»); у готового ответа cut — он упёрся в num_ctx, thinkMs —
   // сколько модель рассуждала.
   function renderFoot(status = "", { cut = false, thinkMs } = {}) {
@@ -222,6 +263,11 @@
     const lines = [parts.join(" · "), model.join(" · ")];
     if (cut) lines.push(CUT_NOTE);
     foot.replaceChildren(...lines.filter(Boolean).map((line) => el("div", null, line)));
+    if (current.context) {
+      const context = el("div");
+      renderContext(context, current.context);
+      foot.append(context);
+    }
     foot.hidden = !foot.childNodes.length;
   }
 
@@ -273,6 +319,7 @@
 
   function showResult(result) {
     current.sent = result.sent;
+    current.context = result.context;
     renderText(result.text);
     current.copyBtn.hidden = false;
     renderFoot("", result);
@@ -326,6 +373,7 @@
       return;
     }
     state.sent = null;
+    state.context = null;
     showMessage("status", state.words.reading, false);
     renderFoot();
     // после stopPort() порт ничего не вызывает — ответ всегда к этому state и этому режиму
@@ -362,7 +410,12 @@
     stopCheck();
     state.results = {};
     state.sent = null;
+    state.context = null;
     state.turns = [];
+    for (const composer of Object.values(state.composers)) {
+      composer.contextState = { status: "empty" };
+      renderDialogue(composer);
+    }
     state.thread.replaceChildren();
     state.checked = false;
     state.heading.querySelector(".badge")?.remove();
@@ -435,6 +488,7 @@
 
   // длинный текст модель читает по частям — см. summary/background.js
   function progressText({ step, part, parts }) {
+    if (step === "context") return "Loading model and checking context…";
     if (step === "part") return `${current.words.parts}: ${part} of ${parts}…`;
     if (step === "merge") return "Merging notes from the parts…";
     return "Writing the summary…";
@@ -442,6 +496,10 @@
 
   function onMessage(state, mode, msg) {
     switch (msg?.type) {
+      case "context":
+        state.context = msg.context;
+        renderFoot();
+        break;
       case "source":
         state.sent = { used: msg.used, total: msg.total, model: String(msg.model ?? "") };
         renderFoot();
@@ -463,6 +521,7 @@
           cut: Boolean(msg.cut),
           thinkMs: typeof msg.thinkMs === "number" ? msg.thinkMs : undefined,
           sent: state.sent,
+          context: msg.context,
         };
         showResult(state.results[mode]);
         checkTitle(mode);
@@ -676,6 +735,7 @@
     const state = current;
     if (state.askConn) return; // идёт ответ на другой вопрос
     Object.assign(turn, { answer: null, cut: false, sent: null, missed: null, sources: [], webLimited: false });
+    updateDialogue(turn.mode, { usage: null, total: null, history: null, status: "pending" });
     showAnswerMessage(turn, "status", "Thinking…", false);
     // после stopAsk() порт ничего не вызывает — ответ всегда к этому вопросу
     try {
@@ -684,10 +744,12 @@
         onDisconnect: () => {
           state.askConn = null;
           syncAsk();
+          updateDialogue(turn.mode, { status: "error" });
           showAnswerError(turn, "connection to the extension was lost");
         },
       });
     } catch {
+      updateDialogue(turn.mode, { status: "error" });
       showAnswerError(turn, "the extension was reloaded, reload the page", false);
       return;
     }
@@ -706,6 +768,7 @@
 
   // длинный текст: поиск ответа по частям, потом ответ — см. summary/background.js
   function searchProgressText({ step, part, parts, detail }) {
+    if (step === "context") return "Loading model and checking context…";
     if (step === "web-search") return `Searching the web: ${String(detail ?? "").slice(0, 160)}…`;
     if (step === "search") return `${current.words.search}: ${part} of ${parts}…`;
     if (step === "part" || step === "merge") return progressText({ step, part, parts });
@@ -715,6 +778,9 @@
 
   function onAnswerMessage(turn, msg) {
     switch (msg?.type) {
+      case "dialog-context":
+        updateDialogue(turn.mode, msg.context);
+        break;
       case "web-status":
         current.composers.chat.hint.textContent = msg.enabled
           ? "SearXNG search is automatic when the model needs it"
@@ -731,6 +797,7 @@
         break;
       case "result":
         stopAsk();
+        updateDialogue(turn.mode, { ...msg.context, status: "complete" });
         Object.assign(turn, {
           answer: msg.text,
           cut: Boolean(msg.cut),
@@ -742,10 +809,12 @@
         break;
       case "stopped":
         stopAsk();
+        updateDialogue(turn.mode, { usage: null, status: "stopped" });
         showAnswerMessage(turn, "status", "Stopped", true);
         break;
       case "error":
         stopAsk();
+        updateDialogue(turn.mode, { status: "error" });
         showAnswerError(turn, msg.message ?? "unknown error");
         break;
     }
@@ -828,8 +897,24 @@
     });
     row.append(input, button);
     const hintNode = el("div", "note", hint);
-    box.append(row, hintNode);
-    return { box, input, button, hint: hintNode };
+    const contextBox = el("div", "dialog-context");
+    contextBox.setAttribute("role", "status");
+    contextBox.setAttribute("aria-label", mode === "chat" ? "Free conversation context" : "Page questions context");
+    const contextText = el("div");
+    const contextMeter = el("meter");
+    Object.assign(contextMeter, { min: 0, max: 1, low: 0.8, high: 0.95, optimum: 0 });
+    contextMeter.setAttribute("aria-label", "Context usage");
+    const contextDetail = el("div");
+    const contextWarning = el("div", "context-warning");
+    contextBox.append(contextText, contextMeter, contextDetail, contextWarning);
+    box.append(row, hintNode, contextBox);
+    const composer = {
+      box, input, button, hint: hintNode,
+      contextBox, contextText, contextMeter, contextDetail, contextWarning,
+      contextState: { status: "empty" },
+    };
+    renderDialogue(composer);
+    return composer;
   }
 
   function close() {
@@ -949,6 +1034,7 @@
       results: {},
       stale: new Set(),
       sent: null,
+      context: null,
       conn: null,
       thinkTimer: 0,
       turns: [],

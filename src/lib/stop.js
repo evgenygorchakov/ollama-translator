@@ -5,6 +5,7 @@
 import { getSettings } from "./settings.js";
 import { ErrorCode, unloadModel } from "./ollama.js";
 import { busyCount } from "./slots.js";
+import { clearContextState } from "./model-context.js";
 
 // Флаг в storage.session: popup по нему не прогревает модель, которую только что выгрузили.
 // Снимается, когда к модели снова пошёл запрос.
@@ -69,6 +70,12 @@ async function unloadUsed() {
   const forgotten = chrome.storage.session.remove([...used.keys()]).catch(() => {});
   const list = [...used];
   const results = await Promise.allSettled(list.map(([, m]) => unloadModel(m.url, m.model)));
+  await Promise.allSettled(list.map(([, m], i) => {
+    const result = results[i];
+    if (result.status === "fulfilled" || result.reason?.code === ErrorCode.MODEL_NOT_FOUND) {
+      return clearContextState(m.url, m.model);
+    }
+  }));
   await forgotten;
   // невыгруженные вернём — их выгрузит следующий «Стоп»; удалённую из Ollama выгружать незачем
   const failed = list.filter((_, i) => {

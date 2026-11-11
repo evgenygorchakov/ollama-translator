@@ -162,6 +162,22 @@ select {
   margin-top: 12px;
 }
 
+.context {
+  margin-top: 8px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.context meter {
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin-top: 3px;
+}
+
+.context meter[hidden] { display: none; }
+.context-note { margin-top: 2px; font-size: 11px; }
+
 .actions button {
   flex: 1 1 auto;
   padding: 8px;

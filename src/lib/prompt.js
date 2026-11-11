@@ -62,7 +62,7 @@ export function batchSchema(count) {
   };
 }
 
-// opts — контекст перевода: { model, prompts, temperature, numCtx, disableThinking }.
+// opts — контекст перевода: { model, prompts, temperature, disableThinking }.
 // Общая часть тела запроса: модуль со своими запросами к модели добавляет к ней messages.
 export function baseRequest(opts) {
   return {
@@ -70,7 +70,8 @@ export function baseRequest(opts) {
     keep_alive: "30m",
     // think передаём только моделям с thinking: на остальных он может дать ошибку
     ...(opts.disableThinking ? { think: false } : {}),
-    options: { temperature: opts.temperature, num_ctx: opts.numCtx },
+    // Длиной контекста управляет Ollama, в запросах её не переопределяем.
+    options: { temperature: opts.temperature },
   };
 }
 

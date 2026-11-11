@@ -30,6 +30,12 @@
       <select id="model" disabled></select>
     </label>
 
+    <div id="context" class="context" hidden>
+      <div id="context-text"></div>
+      <meter id="context-meter" min="0" max="1" value="0" aria-label="Context usage" hidden></meter>
+      <div class="context-note">Last completed request · context set in Ollama</div>
+    </div>
+
     <div class="actions">
       <button
         id="stop"

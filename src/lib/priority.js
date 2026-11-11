@@ -8,15 +8,16 @@ import { createContext } from "./translate.js";
 
 // Ждёт слот, создаёт контекст перевода и вызывает fn(ctx); слот отдаёт, когда fn закончит.
 // prompts — см. createContext; model — модель вместо модели из настроек (например, та, с которой
-// начата работа из нескольких запросов), пусто — из настроек. При отмене signal — OllamaError
+// начата работа из нескольких запросов), ollamaUrl — её сервер; пусто — из настроек. При отмене signal — OllamaError
 // ABORTED. → результат fn.
-export async function withPrioritySlot({ signal, prompts, model }, fn) {
+export async function withPrioritySlot({ signal, prompts, model, ollamaUrl }, fn) {
   let settings = await getSettings();
   const waited = await acquire(settings.concurrency, signal);
   try {
     // слот ждали, может, минутами — за это время в popup могли сменить модель или язык
     if (waited) settings = await getSettings();
     if (model) settings = { ...settings, model };
+    if (ollamaUrl) settings = { ...settings, ollamaUrl };
     markModelUsed(settings.ollamaUrl, settings.model);
     // /api/show тоже запрос к Ollama — внутри слота
     const ctx = await createContext(settings, signal, prompts);

@@ -5,6 +5,7 @@ import { ErrorCode, OllamaError, abortedError, chat, showModel } from "./ollama.
 import { buildBatchRequest, buildSingleRequest, settingsPrompts } from "./prompt.js";
 import { isBadTranslation, parseBatch, parseSingle } from "./parse.js";
 import "./tags.js"; // обычный скрипт, см. в нём
+import { loadModelContext, recordContextUsage } from "./model-context.js";
 
 const { hasTags, sameTags, closeTags } = globalThis.__ollamaTranslator.tags;
 
@@ -96,7 +97,10 @@ export async function createContext(settings, signal, prompts = settingsPrompts(
     baseUrl: settings.ollamaUrl,
     model: settings.model,
     temperature: settings.temperature,
-    numCtx: settings.numCtx,
+    // Только для бюджета текста и счётчика; в options.num_ctx это значение не отправляется.
+    numCtx: await withRetry(
+      () => loadModelContext(settings.ollamaUrl, settings.model, { signal }), signal,
+    ),
     prompts,
     signal,
     // Ollama могла ещё не подняться — те же ретраи, что у chat
@@ -119,11 +123,12 @@ export async function chatWithRetry(body, ctx, { onContent, onThinking } = {}) {
     ctx.signal,
     ctx.beforeRequest,
   );
-  if (res.evalDuration) {
+  if (res.evalDuration && res.evalCount !== null) {
     const speed = res.evalCount / (res.evalDuration / 1e9);
     console.debug(`[ot] ${res.evalCount} ток. за ${(res.evalDuration / 1e9).toFixed(1)} с, ${speed.toFixed(1)} ток/с`);
   }
-  return res;
+  const context = await recordContextUsage(ctx, res);
+  return { ...res, context };
 }
 
 // acceptUnchanged: вернувшийся без изменений текст — не ошибка (выделенное могло быть уже на
@@ -157,7 +162,7 @@ function truncated() {
   return {
     error: {
       code: ErrorCode.BAD_RESPONSE,
-      message: "Translation cut off: the model ran out of context (num_ctx in settings)",
+      message: "Translation cut off: the model reached a length limit. Check context length in Ollama.",
     },
   };
 }

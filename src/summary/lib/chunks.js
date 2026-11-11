@@ -49,21 +49,42 @@ export function fitExcerpts(excerpts, max) {
 // Последние из turns ([{ question, answer }] по порядку), которые вместе влезают в max символов.
 // Последний берём всегда, ответ в нём, если не влезает, — началом: без него не понять вопрос
 // вроде «а подробнее?».
+// → { turns, history }: метаданные описывают именно эту подгонку, не сумму прошлых запросов.
 export function fitTurns(turns, max) {
   const out = [];
-  let left = max;
+  const budgetChars = Math.max(0, Math.floor(max));
+  let left = budgetChars;
+  let shortenedAnswers = 0;
   for (let i = turns.length - 1; i >= 0; i--) {
     const { question, answer } = turns[i];
     const size = question.length + answer.length;
     if (size > left) {
       const head = out.length ? "" : cutText(answer, Math.max(0, left - question.length));
-      if (head) out.push({ question, answer: head });
+      if (head) {
+        out.push({ question, answer: head });
+        shortenedAnswers++;
+      }
       break;
     }
     out.unshift(turns[i]);
     left -= size;
   }
-  return out;
+  const sizeOf = (items) => items.reduce((sum, t) => sum + t.question.length + t.answer.length, 0);
+  return {
+    turns: out,
+    history: {
+      budgetChars,
+      usedChars: sizeOf(turns),
+      keptChars: sizeOf(out),
+      omittedTurns: turns.length - out.length,
+      shortenedAnswers,
+    },
+  };
+}
+
+// Та же грубая оценка, что используется при распределении бюджета, не токенизатор модели.
+export function estimatedTokens(chars) {
+  return Math.ceil(chars / CHARS_PER_TOKEN);
 }
 
 // Начало текста не длиннее max: по границе абзаца, если она в последней пятой части, иначе по

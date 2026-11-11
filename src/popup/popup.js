@@ -1,8 +1,10 @@
 import { getSettings, setSettings } from "../lib/settings.js";
-import { ErrorCode, getVersion, listModels, showModel, warmUp } from "../lib/ollama.js";
+import { ErrorCode, getVersion, listModels, showModel } from "../lib/ollama.js";
 import { modelOptions } from "../lib/model-options.js";
 import { getPageState } from "../lib/tabs.js";
 import { isStopped, markModelUsed } from "../lib/stop.js";
+import { contextKeys, loadModelContext, readContextState } from "../lib/model-context.js";
+import "../shared/context-usage.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -31,6 +33,27 @@ let tabId = null;
 let pageState = null; // ответ content script'а; null — ещё не внедрён или страница недоступна
 let activity = IDLE; // работа модели на всех вкладках и над выделенным, из background
 let acting = false; // идёт переключение, «Продолжить» или «Стоп»: кнопки не нажимаются
+let warming = null;
+
+async function renderContext() {
+  const { ollamaUrl, model } = settings;
+  $("context").hidden = !model;
+  if (!model) return;
+  const state = await readContextState(ollamaUrl, model);
+  if (settings.ollamaUrl !== ollamaUrl || settings.model !== model) return;
+  const { text, title, ratio } = globalThis.__ollamaTranslator.contextUsage(state);
+  $("context-text").textContent = text;
+  $("context").title = title;
+  $("context-meter").hidden = ratio === null;
+  $("context-meter").value = ratio ?? 0;
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "session" || !settings) return;
+  if (changes.modelStopped?.newValue) warming?.abort();
+  const keys = Object.values(contextKeys(settings.ollamaUrl, settings.model));
+  if (keys.some((key) => key in changes)) renderContext().catch(console.warn);
+});
 
 const HINTS = {
   [ErrorCode.OLLAMA_DOWN]: {
@@ -113,6 +136,7 @@ function renderModels() {
   els.model.replaceChildren(...modelOptions(models, settings.model));
   els.model.value = settings.model;
   els.model.disabled = models.length === 0;
+  renderContext().catch(console.warn);
 }
 
 function updateModelStatus() {
@@ -137,9 +161,25 @@ function updateModelStatus() {
 // Грузим модель в память заранее, пока пользователь тянется к кнопке. После «Стоп» — нет:
 // модель выгрузили намеренно, открытый popup не должен загружать её обратно.
 async function warmUpUnlessStopped() {
-  if (await isStopped()) return;
-  markModelUsed(settings.ollamaUrl, settings.model); // «Стоп» выгрузит её, даже если модель сменят
-  warmUp(settings.ollamaUrl, settings.model).catch((err) => console.warn("warm-up:", err));
+  warming?.abort();
+  const controller = new AbortController();
+  warming = controller;
+  const { ollamaUrl, model } = settings;
+  if (await isStopped() || controller.signal.aborted) return;
+  markModelUsed(ollamaUrl, model); // «Стоп» выгрузит её, даже если модель сменят
+  try {
+    await loadModelContext(ollamaUrl, model, { signal: controller.signal });
+  } catch (err) {
+    if (controller.signal.aborted) return;
+    console.warn("warm-up:", err);
+    if (settings.ollamaUrl === ollamaUrl && settings.model === model) {
+      $("context-text").textContent = "Context: unavailable";
+      $("context").title = err.message;
+      $("context-meter").hidden = true;
+    }
+  } finally {
+    if (warming === controller) warming = null;
+  }
 }
 
 async function check() {
@@ -162,6 +202,8 @@ async function check() {
     models = [];
     els.model.replaceChildren();
     setStatus("error", err.message, HINTS[err.code]);
+    $("context-text").textContent = "Context: unavailable";
+    $("context-meter").hidden = true;
   } finally {
     els.refresh.disabled = false;
   }
