@@ -1,7 +1,7 @@
 // Краткое содержание страницы и видео YouTube, часть service worker:
-// кнопки в popup (сообщение summarizeTab), пункт контекстного меню на странице,
+// кнопки в popup (сообщение summarizeTab),
 // внедрение панели (panel.js) и порт "summary", по которому она просит субтитры видео, краткое
-// содержание. На странице видео (www.youtube.com/watch) кнопки и пункты меню страницы
+// содержание. На странице видео (www.youtube.com/watch) кнопки
 // работают с видео по его субтитрам. От перевода страницы, выделенного и озвучки не зависит.
 //
 // Один порт — один запрос. Панель → сюда: transcript { videoId } — субтитры видео текстом;
@@ -39,7 +39,6 @@ import { getSettings } from "../lib/settings.js";
 import { chatWithRetry, toOllamaError } from "../lib/translate.js";
 import { withPrioritySlot } from "../lib/priority.js";
 import { onPortClosed, safePost } from "../lib/port.js";
-import { ensureMenu } from "../lib/menus.js";
 import { onStop, registerQueue } from "../lib/stop.js";
 import { pageCaptions, parseJson3 } from "../lib/youtube-captions.js";
 import {
@@ -70,7 +69,6 @@ import {
 } from "../lib/chunks.js";
 
 const PORT_NAME = "summary";
-const MENU_ID = "summarize-page";
 const PANEL_SCRIPTS = [
   "src/shared/keepalive-port.js",
   "src/shared/theme.js",
@@ -101,12 +99,11 @@ const CAPTION_ERRORS = {
 
 chrome.runtime.onInstalled.addListener(() => {
   // Удалённые пункты могли сохраниться от предыдущей версии расширения.
-  for (const id of ["essence-page", "essence-selection", "summarize-selection"]) {
+  for (const id of ["essence-page", "essence-selection", "summarize-selection", "summarize-page"]) {
     chrome.contextMenus.remove(id, () => {
       void chrome.runtime.lastError; // пункта уже нет — удалять нечего
     });
   }
-  ensureMenu({ id: MENU_ID, title: "Summarize page", contexts: ["page"] });
 });
 
 // Что сокращать на вкладке с адресом url: на странице видео YouTube — видео, иначе страницу.
@@ -148,14 +145,6 @@ async function openPanel(tabId, source = { kind: "page" }, mode = "") {
   await chrome.scripting.executeScript({ target, files: PANEL_SCRIPTS });
   if (!(await tryOpen())) throw new Error("the panel didn't start");
 }
-
-chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId !== MENU_ID || !tab?.id) return;
-  // chrome://, Chrome Web Store, встроенный просмотрщик PDF — туда скрипты не внедрить
-  openPanel(tab.id, pageSource(tab.url)).catch((err) =>
-    console.warn("[ot] не удалось показать панель краткого содержания:", err.message),
-  );
-});
 
 // открывать панель — только страницам расширения (popup), не content scripts. mode — как у
 // openPanel.

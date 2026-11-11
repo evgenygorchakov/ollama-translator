@@ -5,7 +5,8 @@
 import "./page/background.js"; // перевод всей страницы: popup, Alt+Shift+T, меню страницы
 import "./selection/background.js"; // перевод выделенного: меню по правому клику на выделении
 import "./dub/background.js"; // озвучка YouTube-видео: кнопка в плеере
-import "./summary/background.js"; // краткое содержание: popup, меню страницы
+import "./summary/background.js"; // краткое содержание: popup
+import "./popup/background.js"; // открытие popup из контекстного меню
 import "./text-workspace/background.js"; // экспериментальный диалог по выделенному тексту
 import { activity, stopAll } from "./lib/stop.js";
 
