@@ -12,13 +12,20 @@ conversation history. Both use the selected Ollama model and response language.
 In Settings, turn on **Text workspace** and allow website access when the browser asks.
 The switch applies immediately to open and future HTTP(S) pages; it is off by default.
 Select text, then hover over **✦ Ask** to reveal a compact conversation panel. Click the
-button (or press **Alt+Enter** while it is visible) to focus the question field. The violet
-cursor can be switched off separately. Animations respect reduced-motion preferences.
+button (or press **Alt+Enter** while it is visible) to focus the question field. The orange
+Figma-style cursor has rounded corners, a white outline and a soft shadow, and can be switched
+off separately. **Main color** in Text workspace settings offers seven colors for both the
+cursor and the Ask panel, with orange as the default. Color changes save immediately and apply
+to open panels. Secondary text has stronger contrast in light and dark themes.
+Animations respect reduced-motion preferences.
 The button appears beside the pointer where you finish selecting, shifts inward near window
 edges, and follows the text when scrolling. Keyboard selections place it beside the selected text.
 
 Ask a question, or use Explain / Summarize / Rewrite to fill the question field. **Enter**
-sends; **Shift+Enter** inserts a new line. Answers stream into the panel, with **Stop**,
+sends; **Shift+Enter** inserts a new line. Answers, including summaries and rewrites, use the
+**Translation language** selected in Settings (Russian by default), even for English source
+text and quick actions, unless the question explicitly requests another language.
+Answers stream into the panel, with **Stop**,
 **Copy**, **Reset** and a context-usage indicator. Only the selection and this panel's
 completed questions and answers go to the selected Ollama model. No request is made merely
 by selecting or hovering. The panel has no web search.

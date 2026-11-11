@@ -9,6 +9,7 @@
   let disposed = false;
   let enabled = false;
   let cursorEnabled = true;
+  let color = config.color(config.defaultColor);
   let settingsVersion = 0;
   let current = null;
   let dragging = false;
@@ -43,7 +44,15 @@
     cursorStyle?.remove();
     cursorStyle = null;
     if (!enabled || !cursorEnabled || disposed) return;
-    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M4 3v23l6-6 5 10 5-3-5-9h10Z" fill="#8b5cf6" stroke="white" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+      <defs>
+        <filter id="shadow" x="0" y="0" width="32" height="32" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+          <feDropShadow dx="0" dy="1.5" stdDeviation="1.4" flood-color="#000" flood-opacity=".3"/>
+        </filter>
+      </defs>
+      <path d="M6 4.7 26.3 12.3Q28.4 13.1 26.3 13.9L18.6 16.7Q17.2 17.2 16.7 18.6L13.9 26.3Q13.1 28.4 12.3 26.3L4.7 6Q3.9 3.9 6 4.7Z"
+        fill="${color.fill}" stroke="#fff" stroke-width="1.8" stroke-linejoin="round" filter="url(#shadow)"/>
+    </svg>`;
     cursorStyle = element("style");
     cursorStyle.dataset.otTextWorkspace = "cursor";
     // Оставляем привычные курсоры ссылок, кнопок, полей и редактируемого текста.
@@ -52,11 +61,16 @@
         html, body, body *:not(:where(input, textarea, select, a, button, label,
           [role="button"], [contenteditable], [contenteditable] *, a *, button *,
           label *, [role="button"] *, input *, textarea *, select *)) {
-          cursor: url("data:image/svg+xml,${encodeURIComponent(svg)}") 4 3, auto !important;
+          cursor: url("data:image/svg+xml,${encodeURIComponent(svg)}") 5 5, auto !important;
         }
       }
     `;
     document.documentElement.append(cursorStyle);
+  }
+
+  function applyColor(box) {
+    box.style.setProperty("--accent-fill", color.fill);
+    box.style.setProperty("--accent-ink", color.ink);
   }
 
   function sameSelection(a, b) {
@@ -332,6 +346,7 @@
       previousFocus: document.activeElement, hoverTimer: 0,
     };
     const box = element("div", "workspace");
+    applyColor(box);
     const trigger = button("trigger", "", "Ask about selection (Alt+Enter)", () => expand(state, true));
     trigger.append(element("span", "spark", "✦"), element("span", "", "Ask"));
     trigger.setAttribute("aria-haspopup", "dialog");
@@ -356,9 +371,9 @@
     source.append(element("div", "eyebrow", `Selection · ${state.text.length.toLocaleString("en-US")} characters`), quote);
     const suggestions = element("div", "suggestions");
     for (const [title, question] of [
-      ["Explain", "Explain this passage in simple terms."],
-      ["Summarize", "Summarize the main idea of this passage."],
-      ["Rewrite", "Rewrite this passage more clearly, preserving its meaning."],
+      ["Explain", "Explain this passage in simple terms. Answer in the selected translation language."],
+      ["Summarize", "Summarize the main idea of this passage. Answer in the selected translation language."],
+      ["Rewrite", "Rewrite this passage more clearly, preserving its meaning. Write in the selected translation language."],
     ]) {
       suggestions.append(button("", title, title, () => {
         state.input.value = question;
@@ -467,7 +482,7 @@
   }
 
   function settingsChanged(changes, area) {
-    if (area !== "local" || !(config.enabledKey in changes || config.cursorKey in changes)) return;
+    if (area !== "local" || ![config.enabledKey, config.cursorKey, config.colorKey].some((key) => key in changes)) return;
     if (config.enabledKey in changes && changes[config.enabledKey].newValue !== true) {
       dispose();
       return;
@@ -478,11 +493,15 @@
   async function refreshSettings() {
     const version = ++settingsVersion;
     try {
-      const stored = await chrome.storage.local.get({ [config.enabledKey]: false, [config.cursorKey]: true });
+      const stored = await chrome.storage.local.get({
+        [config.enabledKey]: false, [config.cursorKey]: true, [config.colorKey]: config.defaultColor,
+      });
       if (disposed || version !== settingsVersion) return;
       enabled = stored[config.enabledKey] === true;
       cursorEnabled = stored[config.cursorKey] !== false;
+      color = config.color(stored[config.colorKey]);
       if (!enabled) { dispose(); return; }
+      if (current) applyColor(current.box);
       applyCursor();
     } catch { dispose(); }
   }

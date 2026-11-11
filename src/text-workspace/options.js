@@ -1,6 +1,11 @@
 // Единственная точка подключения настроек — script в options.html.
 import { CONFIG, getWorkspaceSettings } from "./lib/settings.js";
 
+const stylesheet = document.createElement("link");
+stylesheet.rel = "stylesheet";
+stylesheet.href = new URL("./options.css", import.meta.url).href;
+document.head.append(stylesheet);
+
 const section = document.createElement("section");
 section.id = "text-workspace-settings";
 const heading = document.createElement("h2");
@@ -19,14 +24,44 @@ function checkbox(id, text) {
   return { input, label };
 }
 const enabled = checkbox(CONFIG.enabledKey, "Enable Text workspace");
-const cursor = checkbox(CONFIG.cursorKey, "Use a Figma-style violet cursor");
+const cursor = checkbox(CONFIG.cursorKey, "Use a Figma-style cursor");
+const palette = document.createElement("fieldset");
+palette.className = "tw-colors";
+const legend = document.createElement("legend");
+legend.textContent = "Main color";
+const swatches = document.createElement("div");
+swatches.className = "tw-swatches";
+const colorInputs = CONFIG.colors.map((color) => {
+  const label = document.createElement("label");
+  label.className = "tw-color";
+  const input = document.createElement("input");
+  input.type = "radio";
+  input.name = CONFIG.colorKey;
+  input.value = color.id;
+  const chip = document.createElement("span");
+  chip.className = "tw-chip";
+  chip.style.backgroundColor = color.fill;
+  chip.textContent = "✓";
+  chip.setAttribute("aria-hidden", "true");
+  const name = document.createElement("span");
+  name.textContent = color.label;
+  label.append(input, chip, name);
+  swatches.append(label);
+  return input;
+});
+const colorHelp = document.createElement("small");
+colorHelp.className = "help";
+colorHelp.id = "text-workspace-color-help";
+colorHelp.textContent = "Used by the cursor and Ask panel. Saves immediately, including on open pages.";
+palette.setAttribute("aria-describedby", colorHelp.id);
+palette.append(legend, swatches, colorHelp);
 const help = document.createElement("small");
 help.className = "help";
 help.textContent = "Applies immediately. Enabling asks for access to websites so the selection button can appear automatically. Uses the selected Ollama model and response language. No request is sent until you ask a question.";
 const status = document.createElement("p");
 status.className = "status";
 status.setAttribute("role", "status");
-section.append(heading, description, enabled.label, cursor.label, help, status);
+section.append(heading, description, enabled.label, cursor.label, help, palette, status);
 document.querySelector("#form > section").after(section);
 
 let saving = false;
@@ -38,6 +73,7 @@ async function fill() {
   enabled.input.checked = settings[CONFIG.enabledKey];
   cursor.input.checked = settings[CONFIG.cursorKey];
   cursor.input.disabled = !enabled.input.checked;
+  for (const input of colorInputs) input.checked = input.value === settings[CONFIG.colorKey];
 }
 
 enabled.input.addEventListener("change", async () => {
@@ -79,10 +115,31 @@ cursor.input.addEventListener("change", async () => {
   }
 });
 
+palette.addEventListener("change", async (event) => {
+  const input = event.target;
+  if (!colorInputs.includes(input) || !input.checked) return;
+  const hadFocus = document.activeElement === input;
+  palette.disabled = true;
+  try {
+    await chrome.storage.local.set({ [CONFIG.colorKey]: input.value });
+    status.textContent = `${CONFIG.color(input.value).label} color saved.`;
+    status.dataset.kind = "ok";
+  } catch {
+    status.textContent = "Could not save the main color.";
+    status.dataset.kind = "error";
+  } finally {
+    palette.disabled = false;
+    await fill();
+    if (hadFocus && document.activeElement === document.body) {
+      (colorInputs.find((choice) => choice.checked) ?? input).focus({ preventScroll: true });
+    }
+  }
+});
+
 // Эти поля сохраняются отдельно; общий обработчик формы не должен писать «Unsaved changes».
 section.addEventListener("input", (event) => event.stopPropagation());
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local" || !(CONFIG.enabledKey in changes || CONFIG.cursorKey in changes)) return;
+  if (area !== "local" || ![CONFIG.enabledKey, CONFIG.cursorKey, CONFIG.colorKey].some((key) => key in changes)) return;
   if (!saving) {
     status.textContent = "";
     void fill();

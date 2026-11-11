@@ -1,0 +1,69 @@
+#text-workspace-settings .tw-colors {
+  min-width: 0;
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+#text-workspace-settings legend {
+  padding: 0;
+  font-weight: 500;
+}
+
+#text-workspace-settings .tw-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 8px 0;
+}
+
+#text-workspace-settings .tw-color {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#text-workspace-settings .tw-color input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+#text-workspace-settings .tw-chip {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 36px;
+  border: 1px solid #0003;
+  border-radius: 8px;
+  color: transparent;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+#text-workspace-settings input:checked + .tw-chip {
+  color: #231f20;
+}
+
+#text-workspace-settings input:focus-visible + .tw-chip {
+  outline: 2px solid var(--fg);
+  outline-offset: 3px;
+}
+
+#text-workspace-settings .tw-colors:disabled .tw-color {
+  cursor: wait;
+  opacity: .6;
+}
+
+@media (forced-colors: active) {
+  #text-workspace-settings .tw-chip { color: Canvas; }
+  #text-workspace-settings input:checked + .tw-chip { color: CanvasText; }
+}
