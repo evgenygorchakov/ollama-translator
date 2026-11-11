@@ -116,11 +116,29 @@ export async function showModel(baseUrl, model, opts = {}) {
 
 // Загружает модель в память заранее, чтобы первый батч не ждал загрузки.
 export async function warmUp(baseUrl, model, { keepAlive = "30m", ...opts } = {}) {
-  return readJson(await request(baseUrl, "/api/generate", {
-    ...opts,
-    method: "POST",
-    body: { model, prompt: "", stream: false, keep_alive: keepAlive },
-  }));
+  const stall = new AbortController();
+  let stallError = null;
+  const watch = watchStall(baseUrl, (message) => {
+    stallError = new OllamaError(ErrorCode.OLLAMA_DOWN, message);
+    stall.abort();
+  });
+  const signal = opts.signal ? AbortSignal.any([opts.signal, stall.signal]) : stall.signal;
+  try {
+    // Ждём и тело ответа: до него загрузка ещё может продолжаться.
+    return await readJson(await request(baseUrl, "/api/generate", {
+      ...opts,
+      signal,
+      method: "POST",
+      body: { model, prompt: "", stream: false, keep_alive: keepAlive },
+    }));
+  } catch (err) {
+    // readJson превращает оборванное чтение тела в BAD_RESPONSE; сохраняем причину отмены.
+    if (opts.signal?.aborted) throw abortedError();
+    if (stallError) throw stallError;
+    throw err;
+  } finally {
+    watch.stop();
+  }
 }
 
 // Фактически выделенное окно загруженной модели, а не её теоретический максимум из /api/show.
@@ -149,29 +167,32 @@ export async function unloadModel(baseUrl, model, opts = {}) {
 // и service worker, см. slots.js). Но до первого куска ответа молчание — норма: запрос ждёт
 // очереди в Ollama (OLLAMA_NUM_PARALLEL, наши же запросы, другие клиенты), модель грузится в
 // память, читается промпт — на медленном железе всё это минуты. Поэтому до первого куска только
-// проверяем раз в CHAT_PROBE_MS, что Ollama отвечает; зависшую загрузку модели она оборвёт сама
+// проверяем раз в MODEL_PROBE_MS, что Ollama отвечает; зависшую загрузку модели она оборвёт сама
 // (OLLAMA_LOAD_TIMEOUT). Когда модель пишет ответ, куски идут постоянно: тогда отсчёт простоя
-// сбрасывает каждый кусок.
-const CHAT_PROBE_MS = 30_000;
-const CHAT_PROBE_TIMEOUT_MS = 10_000;
+// сбрасывает каждый кусок. При warmUp проверяем доступность до конца загрузки, включая тело
+// ответа: она тоже держит слот, но потоковых кусков у неё нет.
+const MODEL_PROBE_MS = 30_000;
+const MODEL_PROBE_TIMEOUT_MS = 10_000;
 const CHAT_IDLE_MS = 180_000;
 
-// Сторож запроса chat: если Ollama не отвечает, зовёт onStall(message).
+// Сторож запросов warmUp и chat: если Ollama не отвечает, зовёт onStall(message).
 function watchStall(baseUrl, onStall) {
   const probing = new AbortController();
   let timer = null;
   const probe = async () => {
+    const signal = withTimeout(probing.signal, MODEL_PROBE_TIMEOUT_MS);
     try {
-      await getVersion(baseUrl, { timeoutMs: CHAT_PROBE_TIMEOUT_MS, signal: probing.signal });
+      await getVersion(baseUrl, { timeoutMs: 0, signal });
     } catch (err) {
-      if (err.code === ErrorCode.OLLAMA_DOWN && !probing.signal.aborted) {
+      // Тайм-аут может оборвать и тело /api/version, которое readJson считает BAD_RESPONSE.
+      if ((err.code === ErrorCode.OLLAMA_DOWN || signal.aborted) && !probing.signal.aborted) {
         onStall(`Ollama isn't responding (${baseUrl})`);
         return;
       }
     }
-    if (!probing.signal.aborted) timer = setTimeout(probe, CHAT_PROBE_MS);
+    if (!probing.signal.aborted) timer = setTimeout(probe, MODEL_PROBE_MS);
   };
-  timer = setTimeout(probe, CHAT_PROBE_MS);
+  timer = setTimeout(probe, MODEL_PROBE_MS);
   const stop = () => {
     probing.abort();
     clearTimeout(timer);

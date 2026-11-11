@@ -73,6 +73,11 @@ Changing context length in Ollama takes effect on the next operation. Reopen the
 ⟳ to refresh its capacity. The extension still limits source text to 150,000 characters for
 summaries and questions, and selection translation to 5,000 characters.
 
+While loading a model or waiting for a chat response to begin, the extension checks Ollama
+every 30 seconds and allows 10 seconds for each check. If Ollama stops responding, it cancels
+the attempt; normal retries still apply. Slow loading can continue while Ollama responds.
+Stop cancels the wait immediately.
+
 ## Setup
 
 1. Install [Ollama](https://ollama.com/download), pull a model (`ollama pull gemma4`), allow
