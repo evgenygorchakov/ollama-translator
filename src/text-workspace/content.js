@@ -128,7 +128,7 @@
   }
 
   function renderContext(state) {
-    const view = ns.contextUsage(state.context);
+    const view = ns.contextUsage(state.context ?? {});
     state.contextLabel.textContent = state.context ? view.text : "Separate conversation for this selection";
     state.contextLabel.title = view.title + (state.model ? ` Model: ${state.model}.` : "");
     state.meter.hidden = view.ratio === null;
