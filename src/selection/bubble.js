@@ -10,38 +10,36 @@
   const STYLE = `
     :host { all: initial; }
     .box {
-      --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --border: #d0d7de;
-      --btn-hover: #f3f4f6; --error: #cf222e; --accent: #0969da;
       box-sizing: border-box;
-      width: max-content; min-width: 220px; max-width: min(420px, calc(100vw - ${2 * MARGIN}px));
+      width: max-content; min-width: min(220px, calc(100vw - ${2 * MARGIN}px)); max-width: min(420px, calc(100vw - ${2 * MARGIN}px));
       background: var(--bg); color: var(--fg);
-      border: 1px solid var(--border); border-radius: 8px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+      border: 1px solid var(--border); border-radius: 12px;
+      box-shadow: var(--panel-shadow);
+      font: 13px/1.5 var(--ui-font);
       text-align: left;
     }
-    @media (prefers-color-scheme: dark) {
-      .box {
-        --bg: #22272e; --fg: #e6edf3; --muted: #9198a1; --border: #444c56;
-        --btn-hover: #2d333b; --error: #ff7b72; --accent: #4493f8;
-      }
-    }
     .head {
-      display: flex; align-items: center; gap: 4px;
-      padding: 4px 4px 4px 12px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 12px; border-bottom: 1px solid var(--border);
       color: var(--muted); font-size: 12px;
     }
-    .title { flex: 1; }
+    .title { flex: 1; font-weight: 600; color: var(--fg); }
     button {
-      all: unset; cursor: pointer; padding: 2px 8px; border-radius: 4px;
+      border: 0; margin: 0; background: none; cursor: pointer; padding: 5px 8px; border-radius: 6px;
+      transition: background 120ms, transform 120ms;
       color: var(--muted); font: inherit;
     }
     button:hover { background: var(--btn-hover); color: var(--fg); }
     button:focus-visible { outline: 2px solid var(--accent); }
     button[hidden] { display: none; }
-    .close { font-size: 16px; line-height: 1; }
+    button:active:not(:disabled) { transform: scale(.96); }
+    .close { font-size: 20px; line-height: 1; width: 28px; height: 28px; padding: 0; }
+    .head::before {
+      content: "✦"; display: grid; place-items: center; flex: none;
+      width: 25px; height: 25px; border-radius: 7px; background: var(--tint); color: var(--accent);
+    }
     .body {
-      padding: 8px 12px 10px; max-height: 50vh; overflow: auto;
+      padding: 12px; max-height: 50vh; overflow: auto;
       white-space: pre-wrap; overflow-wrap: anywhere; user-select: text;
     }
     .status { color: var(--muted); }

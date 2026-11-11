@@ -14,9 +14,12 @@ The switch applies immediately to open and future HTTP(S) pages; it is off by de
 Select text, then hover over **✦ Ask** to reveal a compact conversation panel. Click the
 button (or press **Alt+Enter** while it is visible) to focus the question field. The orange
 Figma-style cursor has rounded corners, a white outline and a soft shadow, and can be switched
-off separately. **Main color** in Text workspace settings offers seven colors for both the
-cursor and the Ask panel, with orange as the default. Color changes save immediately and apply
-to open panels. Secondary text has stronger contrast in light and dark themes.
+off separately. For now, the same custom cursor also replaces link, button, text-input and
+other cursors while the mode is enabled, including inside the extension's panels and settings.
+**Main color** in Text workspace settings offers seven colors, with orange as the default.
+The popup, settings, translation, summary and dubbing panels share the Text workspace theme.
+Color changes save immediately and apply throughout the extension, including open panels.
+Secondary text has stronger contrast in light and dark themes.
 Animations respect reduced-motion preferences.
 The button appears beside the pointer where you finish selecting, shifts inward near window
 edges, and follows the text when scrolling. Keyboard selections place it beside the selected text.
@@ -47,7 +50,8 @@ token counts appear after a completed answer.
 The automatic button is for ordinary page text, not form fields or editable areas. Browser
 internal pages, extension-store pages and the built-in PDF viewer do not allow this UI.
 
-The feature lives entirely in [`src/text-workspace`](src/text-workspace). To remove it,
+The feature lives in [`src/text-workspace`](src/text-workspace), while its shared palette,
+cursor artwork and extension theme live in [`src/shared/theme.js`](src/shared/theme.js). To remove it,
 turn it off first, delete that directory, remove its import from `src/background.js` and
 its script tag from `src/options/options.html`, then reload the extension and open pages.
 It has no dependencies on the translation, summary or dubbing modules.
@@ -99,8 +103,8 @@ retains its separate counter for the last completed request across operations.
 
 Exact usage is the final request's input tokens plus generated tokens, including thinking, as
 reported by Ollama after generation finishes. History is already included in that input;
-independent requests and intermediate steps are never added together. `—` means usage has not
-been reported, and `unknown` means capacity is unavailable. Hover for the input/output breakdown.
+independent requests and intermediate steps are never added together. The entire context block
+stays hidden until both usage and capacity are available. Hover for the input/output breakdown.
 A request can process more tokens than the window retains; the count and percentage show that
 overflow, while the meter stops at 100%.
 
@@ -111,9 +115,10 @@ the estimate includes that reply for the next turn; the next question and the mo
 can change the actual fit. Warnings appear at 80% of either the context or history budget.
 
 If request preparation omits old messages, shortens earlier answers or trims web tool text, a
-visible warning remains even at low context usage, after retries and after stopping generation.
+warning is retained even at low context usage, after retries and after stopping generation,
+and is shown with the context block when usage is available.
 The existing **Reset** button clears both histories, both indicators and all these warnings.
-During generation or after an interrupted attempt, usage stays unknown until a final response
+During generation or after an interrupted attempt, the context block stays hidden until a final response
 completes. An error does not add partial answers to history.
 
 Changing context length in Ollama takes effect on the next operation. Reopen the popup or press

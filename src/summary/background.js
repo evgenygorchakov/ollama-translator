@@ -78,6 +78,7 @@ const MENUS = {
 };
 const PANEL_SCRIPTS = [
   "src/shared/keepalive-port.js",
+  "src/shared/theme.js",
   "src/shared/shadow-host.js",
   "src/shared/clipboard.js",
   "src/shared/context-usage.js",

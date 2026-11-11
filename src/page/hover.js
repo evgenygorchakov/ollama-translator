@@ -20,19 +20,15 @@
   const STYLE = `
     :host { all: initial; }
     .tip {
-      --bg: #ffffff; --fg: #1f2328; --border: #d0d7de;
       box-sizing: border-box;
       width: max-content; max-width: min(560px, calc(100vw - ${2 * MARGIN}px));
       display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden;
-      padding: 6px 10px;
+      padding: 9px 11px;
       background: var(--bg); color: var(--fg);
-      border: 1px solid var(--border); border-radius: 6px;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
-      font: 14px/${LINE_HEIGHT}px system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+      border: 1px solid var(--border); border-radius: 9px;
+      box-shadow: var(--panel-shadow);
+      font: 13px/${LINE_HEIGHT}px var(--ui-font);
       text-align: left; white-space: normal; overflow-wrap: anywhere;
-    }
-    @media (prefers-color-scheme: dark) {
-      .tip { --bg: #22272e; --fg: #e6edf3; --border: #444c56; }
     }
   `;
 

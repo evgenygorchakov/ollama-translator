@@ -5,19 +5,17 @@
   ns.contextUsage = ({ total, usage } = {}) => {
     const known = Number.isSafeInteger(total) && total > 0;
     const used = Number.isSafeInteger(usage?.used) && usage.used >= 0 ? usage.used : null;
-    const limit = known ? number.format(total) : "unknown";
-    const ratio = known && used !== null ? Math.min(1, used / total) : null;
-    const percent = ratio === null ? "—" : number.format(Math.round(used / total * 1000) / 10);
+    if (!known || used === null) return { text: "", title: "", ratio: null };
+    const ratio = Math.min(1, used / total);
+    const percent = number.format(Math.round(used / total * 1000) / 10);
     const title = [
       "Context length is managed in Ollama.",
-      used !== null
-        ? `Last completed request: ${number.format(usage.input)} input + ${number.format(usage.output)} generated tokens (including thinking).`
-        : "Token usage is available after a request completes.",
+      `Last completed request: ${number.format(usage.input)} input + ${number.format(usage.output)} generated tokens (including thinking).`,
       "Includes the prompt and history actually sent. Independent requests are not added together.",
-      known && used > total ? "This request processed more tokens than the window can retain." : "",
+      used > total ? "This request processed more tokens than the window can retain." : "",
     ].filter(Boolean).join(" ");
     return {
-      text: `Context: ${used === null ? "—" : number.format(used)} / ${limit} tokens · ${percent}%`,
+      text: `Context: ${number.format(used)} / ${number.format(total)} tokens · ${percent}%`,
       title,
       ratio,
     };

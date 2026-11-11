@@ -29,7 +29,7 @@
     :host { all: initial; }
     .panel {
       display: flex; flex-direction: column; align-items: flex-start;
-      font: 500 14px/20px "YouTube Noto", Roboto, Arial, Helvetica, sans-serif;
+      font: 500 13px/20px var(--ui-font);
       transition: opacity 0.25s cubic-bezier(0, 0, 0.2, 1);
     }
     /* панель YouTube спряталась — прячемся и мы, если меню закрыто, а панель не под мышью */
@@ -38,62 +38,64 @@
       transition: opacity 0.1s cubic-bezier(0.4, 0, 1, 1);
     }
     .bar {
-      display: flex; max-width: 480px; border-radius: 18px; overflow: hidden;
-      background: rgba(0, 0, 0, 0.6); color: #fff;
+      display: flex; max-width: min(480px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
+      background: var(--bg); color: var(--fg); box-shadow: var(--panel-shadow);
     }
     button {
       all: unset; box-sizing: border-box; display: flex; align-items: center; cursor: pointer;
       padding: 6px 12px; font: inherit;
     }
     button[hidden] { display: none; }
-    button:hover, .open .settings { background: rgba(255, 255, 255, 0.15); }
-    button:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
-    .bar > button + button { padding: 6px 10px; border-left: 1px solid rgba(255, 255, 255, 0.2); }
+    button:hover, .open .settings { background: var(--surface); }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .bar > button + button { padding: 6px 10px; border-left: 1px solid var(--line); }
     .main {
       display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      background: var(--accent-fill); color: var(--button-fg);
     }
+    .main:hover { background: var(--button-hover); }
     .main.busy { cursor: progress; }
-    .main.error { background: rgba(170, 30, 30, 0.85); }
-    .main.error:hover { background: rgba(200, 40, 40, 0.9); }
+    .main.error { background: var(--tint); color: var(--error); }
+    .main.error:hover { background: var(--surface); }
     svg {
       width: 20px; height: 20px;
       fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round;
     }
     .menu {
-      box-sizing: border-box; width: 280px; margin-top: 8px; padding: 8px 0;
-      border-radius: 12px; background: rgba(28, 28, 28, 0.9); color: #eee;
-      font-weight: 400; font-size: 13px; text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
-      color-scheme: dark;
+      box-sizing: border-box; width: min(280px, calc(100vw - 32px)); margin-top: 8px; padding: 8px 0;
+      border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--fg);
+      box-shadow: var(--panel-shadow);
+      font-weight: 400; font-size: 13px;
     }
     .menu[hidden] { display: none; }
     .item { display: block; padding: 8px 16px; }
     .row { display: flex; justify-content: space-between; gap: 12px; }
-    .value { color: #fff; font-weight: 500; font-variant-numeric: tabular-nums; }
-    .hint { color: #aaa; font-size: 12px; line-height: 16px; }
+    .value { color: var(--fg); font-weight: 500; font-variant-numeric: tabular-nums; }
+    .hint { color: var(--muted); font-size: 12px; line-height: 16px; }
     input[type="range"] {
-      display: block; width: 100%; margin: 6px 0 2px; accent-color: #3ea6ff; cursor: pointer;
+      display: block; width: 100%; margin: 6px 0 2px; accent-color: var(--accent); cursor: pointer;
     }
     .toggle {
       position: relative; display: flex; align-items: center; justify-content: space-between;
       gap: 12px; cursor: pointer;
     }
-    .toggle:hover, .link:hover { background: rgba(255, 255, 255, 0.1); }
+    .toggle:hover, .link:hover { background: var(--surface); }
     .toggle input { position: absolute; opacity: 0; pointer-events: none; }
     .switch {
       flex: none; position: relative; width: 36px; height: 14px; margin-right: 3px;
-      border-radius: 7px; background: rgba(255, 255, 255, 0.3); transition: background 0.1s;
+      border-radius: 7px; background: var(--line); transition: background 0.1s;
     }
     .switch::before {
       content: ""; position: absolute; top: -3px; left: -3px; width: 20px; height: 20px;
-      border-radius: 50%; background: #bdbdbd; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+      border-radius: 50%; background: var(--muted); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
       transition: transform 0.1s, background 0.1s;
     }
-    input:checked + .switch { background: rgba(62, 166, 255, 0.5); }
-    input:checked + .switch::before { transform: translateX(22px); background: #3ea6ff; }
-    input:focus-visible + .switch { outline: 2px solid #fff; outline-offset: 4px; }
+    input:checked + .switch { background: var(--tint); }
+    input:checked + .switch::before { transform: translateX(22px); background: var(--accent-fill); }
+    input:focus-visible + .switch { outline: 2px solid var(--accent); outline-offset: 4px; }
     .link {
       display: block; width: 100%; margin-top: 4px; padding: 8px 16px;
-      border-top: 1px solid rgba(255, 255, 255, 0.15); color: #aaa; font-size: 12px;
+      border-top: 1px solid var(--line); color: var(--muted); font-size: 12px;
     }
   `;
 

@@ -44,24 +44,13 @@
     cursorStyle?.remove();
     cursorStyle = null;
     if (!enabled || !cursorEnabled || disposed) return;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-      <defs>
-        <filter id="shadow" x="0" y="0" width="32" height="32" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-          <feDropShadow dx="0" dy="1.5" stdDeviation="1.4" flood-color="#000" flood-opacity=".3"/>
-        </filter>
-      </defs>
-      <path d="M6 4.7 26.3 12.3Q28.4 13.1 26.3 13.9L18.6 16.7Q17.2 17.2 16.7 18.6L13.9 26.3Q13.1 28.4 12.3 26.3L4.7 6Q3.9 3.9 6 4.7Z"
-        fill="${color.fill}" stroke="#fff" stroke-width="1.8" stroke-linejoin="round" filter="url(#shadow)"/>
-    </svg>`;
     cursorStyle = element("style");
     cursorStyle.dataset.otTextWorkspace = "cursor";
-    // Оставляем привычные курсоры ссылок, кнопок, полей и редактируемого текста.
+    // Временно заменяем также pointer, text, help, resize и остальные состояния.
     cursorStyle.textContent = `
       @media (pointer: fine) {
-        html, body, body *:not(:where(input, textarea, select, a, button, label,
-          [role="button"], [contenteditable], [contenteditable] *, a *, button *,
-          label *, [role="button"] *, input *, textarea *, select *)) {
-          cursor: url("data:image/svg+xml,${encodeURIComponent(svg)}") 5 5, auto !important;
+        :root, :root *, :root *::before, :root *::after {
+          cursor: ${ns.uiTheme.cursor(color.fill)} !important;
         }
       }
     `;
@@ -161,7 +150,8 @@
 
   function renderContext(state) {
     const view = ns.contextUsage(state.context ?? {});
-    state.contextLabel.textContent = state.context ? view.text : "Separate conversation for this selection";
+    state.foot.hidden = !view.text;
+    state.contextLabel.textContent = view.text;
     state.contextLabel.title = view.title + (state.model ? ` Model: ${state.model}.` : "");
     state.meter.hidden = view.ratio === null;
     state.meterFill.style.width = `${(view.ratio ?? 0) * 100}%`;
@@ -427,7 +417,7 @@
       box.addEventListener(event, (e) => e.stopPropagation());
     }
     Object.assign(state, { box, trigger, panel, suggestions, thread, notice, input, send,
-      contextLabel, meter, meterFill, warning, resize: new ResizeObserver(schedulePlace) });
+      foot, contextLabel, meter, meterFill, warning, resize: new ResizeObserver(schedulePlace) });
     if (state.text.length > config.maxText) {
       showNotice(state, `Select less text: the limit is ${config.maxText.toLocaleString("en-US")} characters.`, true);
     }

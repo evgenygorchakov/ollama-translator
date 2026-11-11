@@ -12,6 +12,7 @@
     const host = document.createElement(tag);
     host.style.cssText = `${hostCss}visibility:visible!important;opacity:1!important;`;
     const shadow = host.attachShadow({ mode: "closed" });
+    ns.uiTheme.attach(shadow);
     const style = document.createElement("style");
     style.textContent = css;
     shadow.append(style);

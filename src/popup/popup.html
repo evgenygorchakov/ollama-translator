@@ -2,17 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Ollama Translator</title>
     <link rel="stylesheet" href="popup.css" />
+    <script type="module" src="../shared/theme-page.js"></script>
     <script type="module" src="popup.js"></script>
     <script type="module" src="../summary/popup.js"></script>
   </head>
   <body>
     <header>
-      <h1>Ollama Translator</h1>
+      <div class="brand">
+        <span class="mark" aria-hidden="true">✦</span>
+        <div><h1>Ollama Translator</h1><p class="subtitle">Your local text workspace</p></div>
+      </div>
       <div class="header-buttons">
-        <button id="refresh" class="icon-button" type="button" title="Check again">⟳</button>
-        <button id="options" class="icon-button" type="button" title="Settings">⚙</button>
+        <button id="refresh" class="icon-button" type="button" title="Check again" aria-label="Check again">⟳</button>
+        <button id="options" class="icon-button" type="button" title="Settings" aria-label="Settings">⚙</button>
       </div>
     </header>
 

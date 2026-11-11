@@ -5,23 +5,9 @@
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
     .workspace {
-      --bg: #fff; --fg: #27272a; --muted: #54545b; --line: #dedee3;
-      --surface: #f4f4f6; --accent: var(--accent-ink); --error: #c12f4b;
-      --tint: color-mix(in srgb, var(--accent-fill) 12%, var(--bg));
-      --button-fg: #231f20;
-      --button-hover: color-mix(in srgb, var(--accent-fill) 88%, white);
-      color: var(--fg); text-align: left; color-scheme: light;
-      font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--fg); text-align: left;
+      font: 13px/1.5 var(--ui-font);
       letter-spacing: normal; text-transform: none; direction: ltr;
-    }
-    @media (prefers-color-scheme: dark) {
-      .workspace {
-        --bg: #232326; --fg: #f7f7fa; --muted: #c4c4cc; --line: #444449;
-        --surface: #2f2f33; --error: #ff94a5;
-        --accent: color-mix(in srgb, var(--accent-fill) 85%, white);
-        --tint: color-mix(in srgb, var(--accent-fill) 16%, var(--bg));
-        color-scheme: dark;
-      }
     }
     button, textarea { font: inherit; }
     button {
@@ -48,7 +34,7 @@
       width: min(380px, calc(100vw - 24px)); max-height: calc(100vh - 24px);
       max-height: calc(100dvh - 24px); overflow: auto;
       background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
-      box-shadow: 0 16px 48px #00000029, 0 2px 8px #00000014;
+      box-shadow: var(--panel-shadow);
       animation: appear 180ms cubic-bezier(.2,.8,.2,1) both;
     }
     .head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }

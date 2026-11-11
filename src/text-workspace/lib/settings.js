@@ -1,3 +1,4 @@
+import "../../shared/theme.js";
 import "../config.js";
 
 export const CONFIG = globalThis.__ollamaTranslator.textWorkspaceConfig;

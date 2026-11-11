@@ -52,7 +52,7 @@ const colorInputs = CONFIG.colors.map((color) => {
 const colorHelp = document.createElement("small");
 colorHelp.className = "help";
 colorHelp.id = "text-workspace-color-help";
-colorHelp.textContent = "Used by the cursor and Ask panel. Saves immediately, including on open pages.";
+colorHelp.textContent = "Used throughout the extension and by the cursor. Saves immediately, including on open panels.";
 palette.setAttribute("aria-describedby", colorHelp.id);
 palette.append(legend, swatches, colorHelp);
 const help = document.createElement("small");

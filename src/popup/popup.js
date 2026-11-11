@@ -37,11 +37,12 @@ let warming = null;
 
 async function renderContext() {
   const { ollamaUrl, model } = settings;
-  $("context").hidden = !model;
+  $("context").hidden = true;
   if (!model) return;
   const state = await readContextState(ollamaUrl, model);
   if (settings.ollamaUrl !== ollamaUrl || settings.model !== model) return;
   const { text, title, ratio } = globalThis.__ollamaTranslator.contextUsage(state);
+  $("context").hidden = !text;
   $("context-text").textContent = text;
   $("context").title = title;
   $("context-meter").hidden = ratio === null;
@@ -173,8 +174,9 @@ async function warmUpUnlessStopped() {
     if (controller.signal.aborted) return;
     console.warn("warm-up:", err);
     if (settings.ollamaUrl === ollamaUrl && settings.model === model) {
-      $("context-text").textContent = "Context: unavailable";
-      $("context").title = err.message;
+      $("context").hidden = true;
+      $("context-text").textContent = "";
+      $("context").title = "";
       $("context-meter").hidden = true;
     }
   } finally {
@@ -202,7 +204,9 @@ async function check() {
     models = [];
     els.model.replaceChildren();
     setStatus("error", err.message, HINTS[err.code]);
-    $("context-text").textContent = "Context: unavailable";
+    $("context").hidden = true;
+    $("context-text").textContent = "";
+    $("context").title = "";
     $("context-meter").hidden = true;
   } finally {
     els.refresh.disabled = false;
