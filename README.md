@@ -30,8 +30,13 @@ sends; **Shift+Enter** inserts a new line. Answers, including summaries and rewr
 text and quick actions, unless the question explicitly requests another language.
 Answers stream into the panel, with **Stop**,
 **Copy**, **Reset** and a context-usage indicator. Only the selection and this panel's
-completed questions and answers go to the selected Ollama model. No request is made merely
-by selecting or hovering. The panel has no web search.
+completed questions and answers go to the selected Ollama model, together with search excerpts
+when web search is used. No request is made merely by selecting or hovering. The panel shares
+the automatic web search setting and SearXNG address with **Ask freely**. It shows whether
+search is enabled, the query while searching, and clickable sources beneath each answer.
+Copy includes source links; follow-up questions retain references from earlier answers.
+Translation, rewriting and explanations that need no outside facts can be answered without searching.
+Stop and closing the panel also cancel an in-progress search.
 
 Each selection starts an independent conversation. Follow-up questions keep that selection
 and its history; Reset clears the conversation but keeps the selection. Closing the panel
@@ -43,8 +48,10 @@ not a second model instance or a separate context-length setting.
 Selections are limited to 12,000 characters and questions to 2,000. The loaded model's
 actual context can impose a smaller limit; an oversized selection is rejected rather than
 silently shortened. Recent complete exchanges are kept within an estimated history budget,
-up to 24 exchanges / 64,000 characters. The panel warns when older messages are omitted or
-an answer reaches its generation limit. Context estimates are approximate; Ollama's final
+up to 24 exchanges / 64,000 characters. Web search reserves space for tool results in the same
+context, so less space is available for the selection and history. The panel warns when older
+messages are omitted, search excerpts are shortened, or an answer reaches its generation limit.
+Context estimates are approximate; Ollama's final
 token counts appear after a completed answer.
 
 The automatic button is for ordinary page text, not form fields or editable areas. Browser
@@ -58,7 +65,7 @@ It has no dependencies on the translation, summary or dubbing modules.
 
 ## Web search
 
-For automatic web search in **Ask freely**, run [SearXNG](https://docs.searxng.org/), open the
+For automatic web search in **Ask freely** and **Text workspace**, run [SearXNG](https://docs.searxng.org/), open the
 extension's Settings, enable “Search the web automatically when needed”, enter the SearXNG base
 address (default `http://127.0.0.1:8888`), and press Save. Allow access to that address when the
 browser asks. The address must be reachable from the browser; for Docker, use the published
@@ -85,8 +92,8 @@ the results even when the JSON API works.
 No Ollama API key or Ollama cloud search service is used. Search queries go to your SearXNG
 server and its configured search engines; your selected Ollama model generates the answer.
 The model receives search excerpts, not full page downloads: SearXNG does not replace
-`web_fetch`. With automatic search disabled, Ask freely uses the page and the model's own
-knowledge. Questions in “Ask about the page…” always use only the source text.
+`web_fetch`. With automatic search disabled, Ask freely and Text workspace use the provided
+text and the model's own knowledge. Questions in “Ask about the page…” always use only the source text.
 
 ## Context length and usage
 

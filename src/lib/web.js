@@ -1,7 +1,8 @@
-// Инструмент Ask freely: поиск через заданный пользователем SearXNG, без облачного API Ollama.
-import { ErrorCode, OllamaError, abortedError } from "../../lib/ollama.js";
+// Общий веб-поиск для диалогов через заданный пользователем SearXNG.
+import { ErrorCode, OllamaError, abortedError, showModel } from "./ollama.js";
 import { cutText, fitExcerpts, inputChars } from "./chunks.js";
 import { searchWeb } from "./searxng.js";
+import { parseSearxngUrl } from "./web-settings.js";
 
 const MAX_CALLS = 6;
 const MAX_ROUNDS = 3;
@@ -24,6 +25,22 @@ const TOOLS = [
 
 function failure(message) {
   return new OllamaError(ErrorCode.BAD_RESPONSE, message);
+}
+
+export async function checkWebAccess({ searxngUrl, numCtx, ollamaUrl, model, signal }) {
+  const url = parseSearxngUrl(searxngUrl);
+  if (!url) throw failure("Enter a valid SearXNG base URL in Settings.");
+  if (!(await chrome.permissions.contains({ origins: [`${url.origin}/*`] }))) {
+    throw failure(`Allow access to SearXNG at ${url.origin} by saving the web search settings again.`);
+  }
+  if (!Number.isSafeInteger(numCtx) || numCtx < 8192) {
+    throw failure("Automatic web search needs at least 8192 context tokens. Increase context length in Ollama.");
+  }
+  if (!model) throw new OllamaError(ErrorCode.MODEL_NOT_FOUND, "No model selected in the popup");
+  const { capabilities } = await showModel(ollamaUrl, model, { signal });
+  if (!capabilities.includes("tools")) {
+    throw failure("This model does not support tools. Choose a model with tool support or disable automatic web search in Settings.");
+  }
 }
 
 export function publicWebUrl(value) {
@@ -73,11 +90,11 @@ function fitMessages(messages, budget, onTrim) {
 }
 
 // ask(build, callbacks) берёт слот только на запрос модели; HTTP-поиск слот не держит.
-export async function webChat({ build, ask, searxngUrl, numCtx, signal, onProgress, onContent, onThinking, onTrim = () => {} }) {
+export async function webChat({ build, ask, searxngUrl, numCtx, signal, onProgress, onContent, onThinking, onTrim = () => {}, messageBudget }) {
   const sources = new Map();
   const messages = [];
   const cache = new Map();
-  const budget = Math.floor(inputChars(numCtx) * 0.45);
+  const budget = messageBudget ?? Math.floor(inputChars(numCtx) * 0.45);
   let calls = 0;
 
   function sourceText(url, title, content, limit = budget) {

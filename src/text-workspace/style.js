@@ -17,7 +17,7 @@
     }
     button:hover { background: var(--surface); }
     button:active { transform: scale(.96); }
-    button:focus-visible, textarea:focus-visible {
+    button:focus-visible, textarea:focus-visible, a:focus-visible {
       outline: 2px solid var(--accent); outline-offset: 3px;
     }
     button:disabled { opacity: .45; cursor: default; }
@@ -56,8 +56,12 @@
     .answer { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
     .answer:empty::before { content: "Preparing an answer…"; color: var(--muted); }
     .turn[data-pending] .answer:empty::before { animation: pulse 1.4s ease-in-out infinite; }
-    .answer-tools { display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 11px; color: var(--muted); }
+    .answer-tools { display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
     .answer-tools button { font-size: 11px; padding: 3px 5px; }
+    .sources, .answer-notes { margin-top: 8px; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+    .sources a { display: block; margin-top: 4px; color: var(--accent); }
+    .answer-notes:empty { display: none; }
+    .web-status { margin-bottom: 5px; color: var(--muted); font-size: 10px; }
     .notice { padding: 0 12px 10px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
     .notice:empty { display: none; }
     .notice[data-error] { color: var(--error); }

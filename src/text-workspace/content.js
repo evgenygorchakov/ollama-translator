@@ -9,6 +9,7 @@
   let disposed = false;
   let enabled = false;
   let cursorEnabled = true;
+  let webEnabled = true;
   let color = config.color(config.defaultColor);
   let settingsVersion = 0;
   let current = null;
@@ -174,6 +175,35 @@
     state.panel.setAttribute("aria-busy", String(state.busy));
   }
 
+  function renderWebStatus(state, enabled = webEnabled) {
+    state.webStatus.textContent = enabled ? "Web search · Auto" : "Web search · Off";
+    state.webStatus.title = enabled
+      ? "Searches when needed using the web search settings shared with Ask freely"
+      : "Enable automatic web search in Settings to search from this panel";
+  }
+
+  function renderSources(turn, sources) {
+    const links = [];
+    const references = [];
+    for (const source of sources) {
+      try {
+        const url = new URL(source.url);
+        if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) continue;
+        const title = `[${source.id}] ${source.title || url.hostname}`;
+        const link = element("a", "", title);
+        link.href = url.href;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.title = url.href;
+        links.push(link);
+        references.push(`${title}: ${url.href}`);
+      } catch { /* Некорректный URL не превращаем в ссылку. */ }
+    }
+    turn.sourcesBox.replaceChildren(...(links.length ? [element("div", "", "Sources consulted"), ...links] : []));
+    turn.sourcesBox.hidden = !links.length;
+    turn.references = references.length ? `\n\nSources consulted in this earlier reply:\n${references.join("\n")}` : "";
+  }
+
   function expand(state, focus = false) {
     if (current !== state) return;
     clearTimeout(state.hoverTimer);
@@ -190,6 +220,7 @@
     state.conn?.close();
     state.conn = null;
     state.busy = false;
+    renderWebStatus(state);
     state.pending?.row.removeAttribute("data-pending");
     updateComposer(state);
   }
@@ -222,10 +253,15 @@
     ask.dir = "auto";
     const answer = element("p", "answer");
     answer.dir = "auto";
+    const sourcesBox = element("div", "sources");
+    sourcesBox.hidden = true;
+    const notes = element("div", "answer-notes");
     const tools = element("div", "answer-tools");
     const label = element("span", "", "Generating…");
     const copy = button("", "Copy", "Copy answer", async () => {
-      const ok = await ns.copyText(answer.textContent, state.box);
+      const sources = [...sourcesBox.querySelectorAll("a")].map((link) => `${link.textContent}: ${link.href}`);
+      const text = answer.textContent + (sources.length ? `\n\nSources:\n${sources.join("\n")}` : "");
+      const ok = await ns.copyText(text, state.box);
       if (current !== state) return;
       copy.focus({ preventScroll: true });
       copy.textContent = ok ? "Copied" : "Couldn't copy";
@@ -233,13 +269,13 @@
     });
     copy.hidden = true;
     tools.append(label, copy);
-    row.append(ask, answer, tools);
+    row.append(ask, answer, sourcesBox, notes, tools);
     state.thread.append(row);
     // Ограничиваем и DOM длинной сессии, независимо от числа успешных запросов.
     while (state.thread.children.length > config.maxTurns) state.thread.firstElementChild.remove();
     state.thread.hidden = false;
     state.thread.scrollTop = state.thread.scrollHeight;
-    return { row, answer, label, copy, question };
+    return { row, answer, sourcesBox, notes, references: "", label, copy, question };
   }
 
   function submit(state) {
@@ -263,7 +299,13 @@
         onMessage(msg) {
           if (current !== state || !state.busy) return;
           const pending = state.pending;
-          if (msg?.type === "context") {
+          if (msg?.type === "web-status") {
+            renderWebStatus(state, msg.enabled === true);
+          } else if (msg?.type === "progress") {
+            pending.answer.textContent = "";
+            pending.label.textContent = msg.step === "web-search"
+              ? `Searching the web: ${String(msg.detail ?? "").slice(0, 160)}…` : "Generating…";
+          } else if (msg?.type === "context") {
             state.context = msg.context;
             state.model = msg.model;
             state.omitted ||= msg.omitted > 0;
@@ -277,8 +319,13 @@
             finish(state);
             pending.answer.textContent = msg.text;
             pending.label.textContent = msg.cut ? "Answer reached the length limit" : "Ollama";
+            renderSources(pending, Array.isArray(msg.sources) ? msg.sources : []);
+            pending.notes.textContent = [
+              msg.webLimited && "Web search limit reached; answer uses the information found so far.",
+              msg.webShortened && "Search excerpts were shortened to fit the context.",
+            ].filter(Boolean).join(" ");
             pending.copy.hidden = false;
-            state.history.push({ question, answer: msg.text });
+            state.history.push({ question, answer: msg.text + pending.references });
             let chars = state.history.reduce((n, t) => n + t.question.length + t.answer.length, 0);
             while (state.history.length > config.maxTurns || chars > config.maxHistoryChars) {
               const removed = state.history.shift();
@@ -379,6 +426,8 @@
     const notice = element("div", "notice");
     notice.setAttribute("role", "status");
     const form = element("form", "composer");
+    const webStatus = element("div", "web-status");
+    webStatus.setAttribute("role", "status");
     const input = element("textarea");
     input.rows = 2;
     input.maxLength = config.maxQuestion;
@@ -398,7 +447,7 @@
       else submit(state);
     });
     composeTools.append(element("span", "hint", "Enter to send · Shift+Enter for a new line"), send);
-    form.append(input, composeTools);
+    form.append(webStatus, input, composeTools);
     form.addEventListener("submit", (event) => { event.preventDefault(); submit(state); });
     const foot = element("div", "foot");
     const contextLabel = element("div", "context");
@@ -416,12 +465,13 @@
     for (const event of ["keydown", "keyup", "keypress", "pointerdown", "pointerup", "click"]) {
       box.addEventListener(event, (e) => e.stopPropagation());
     }
-    Object.assign(state, { box, trigger, panel, suggestions, thread, notice, input, send,
+    Object.assign(state, { box, trigger, panel, suggestions, thread, notice, input, send, webStatus,
       foot, contextLabel, meter, meterFill, warning, resize: new ResizeObserver(schedulePlace) });
     if (state.text.length > config.maxText) {
       showNotice(state, `Select less text: the limit is ${config.maxText.toLocaleString("en-US")} characters.`, true);
     }
     updateComposer(state);
+    renderWebStatus(state);
     renderContext(state);
     return state;
   }
@@ -472,7 +522,7 @@
   }
 
   function settingsChanged(changes, area) {
-    if (area !== "local" || ![config.enabledKey, config.cursorKey, config.colorKey].some((key) => key in changes)) return;
+    if (area !== "local" || ![config.enabledKey, config.cursorKey, config.colorKey, "summaryWebEnabled"].some((key) => key in changes)) return;
     if (config.enabledKey in changes && changes[config.enabledKey].newValue !== true) {
       dispose();
       return;
@@ -485,13 +535,18 @@
     try {
       const stored = await chrome.storage.local.get({
         [config.enabledKey]: false, [config.cursorKey]: true, [config.colorKey]: config.defaultColor,
+        summaryWebEnabled: true,
       });
       if (disposed || version !== settingsVersion) return;
       enabled = stored[config.enabledKey] === true;
       cursorEnabled = stored[config.cursorKey] !== false;
+      webEnabled = stored.summaryWebEnabled === true;
       color = config.color(stored[config.colorKey]);
       if (!enabled) { dispose(); return; }
-      if (current) applyColor(current.box);
+      if (current) {
+        applyColor(current.box);
+        if (!current.busy) renderWebStatus(current);
+      }
       applyCursor();
     } catch { dispose(); }
   }

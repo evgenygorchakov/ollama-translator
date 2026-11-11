@@ -1,7 +1,7 @@
 // Свои поля общей формы, как у dub/options.js.
 import { normalizeUrl } from "../lib/settings.js";
-import { WEB_DEFAULTS, getWebSettings, parseSearxngUrl } from "./lib/web-settings.js";
-import { searchWeb } from "./lib/searxng.js";
+import { WEB_DEFAULTS, getWebSettings, parseSearxngUrl } from "../lib/web-settings.js";
+import { searchWeb } from "../lib/searxng.js";
 
 const $ = (id) => document.getElementById(id);
 let settings = await getWebSettings();
@@ -45,7 +45,7 @@ $("form").addEventListener("submit", async (event) => {
     fill();
     status(
       settings.summaryWebEnabled
-        ? "Saved. Ask freely can search through SearXNG with a model that supports tools."
+        ? "Saved. Ask freely and Text workspace can search through SearXNG with a model that supports tools."
         : "Saved. Web search is off.",
       "ok",
     );

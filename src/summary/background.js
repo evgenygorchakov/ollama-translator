@@ -1,5 +1,5 @@
-// Краткое содержание страницы, выделенного и видео YouTube, часть service worker:
-// кнопки в popup (сообщение summarizeTab), пункты контекстного меню на странице и на выделенном,
+// Краткое содержание страницы и видео YouTube, часть service worker:
+// кнопки в popup (сообщение summarizeTab), пункт контекстного меню на странице,
 // внедрение панели (panel.js) и порт "summary", по которому она просит субтитры видео, краткое
 // содержание. На странице видео (www.youtube.com/watch) кнопки и пункты меню страницы
 // работают с видео по его субтитрам. От перевода страницы, выделенного и озвучки не зависит.
@@ -33,7 +33,7 @@
 // У chat ещё web-status { enabled }, progress { step: "web-search", detail },
 // в result — sources [{ id, title, url }], webLimited. Ключ API остаётся только в background.
 
-import { ErrorCode, OllamaError, showModel } from "../lib/ollama.js";
+import { ErrorCode, OllamaError } from "../lib/ollama.js";
 import { stripThinking } from "../lib/parse.js";
 import { getSettings } from "../lib/settings.js";
 import { chatWithRetry, toOllamaError } from "../lib/translate.js";
@@ -56,8 +56,8 @@ import {
   summaryQuestion,
 } from "./lib/prompt.js";
 import { transcriptText } from "./lib/transcript.js";
-import { getWebSettings, parseSearxngUrl } from "./lib/web-settings.js";
-import { publicWebUrl, webChat } from "./lib/web.js";
+import { getWebSettings } from "../lib/web-settings.js";
+import { checkWebAccess, publicWebUrl, webChat } from "../lib/web.js";
 import {
   cutText,
   excerptTokens,
@@ -67,15 +67,10 @@ import {
   historyChars,
   inputChars,
   splitText,
-} from "./lib/chunks.js";
+} from "../lib/chunks.js";
 
 const PORT_NAME = "summary";
-// Пункты контекстного меню: selection — о выделенном, иначе о странице (на странице видео — о
-// видео).
-const MENUS = {
-  "summarize-page": { title: "Summarize page", selection: false },
-  "summarize-selection": { title: "Summarize selection", selection: true },
-};
+const MENU_ID = "summarize-page";
 const PANEL_SCRIPTS = [
   "src/shared/keepalive-port.js",
   "src/shared/theme.js",
@@ -105,15 +100,13 @@ const CAPTION_ERRORS = {
 };
 
 chrome.runtime.onInstalled.addListener(() => {
-  // Пункты удалённого режима могли сохраниться от предыдущей версии расширения.
-  for (const id of ["essence-page", "essence-selection"]) {
+  // Удалённые пункты могли сохраниться от предыдущей версии расширения.
+  for (const id of ["essence-page", "essence-selection", "summarize-selection"]) {
     chrome.contextMenus.remove(id, () => {
       void chrome.runtime.lastError; // пункта уже нет — удалять нечего
     });
   }
-  for (const [id, { title, selection }] of Object.entries(MENUS)) {
-    ensureMenu({ id, title, contexts: [selection ? "selection" : "page"] });
-  }
+  ensureMenu({ id: MENU_ID, title: "Summarize page", contexts: ["page"] });
 });
 
 // Что сокращать на вкладке с адресом url: на странице видео YouTube — видео, иначе страницу.
@@ -131,9 +124,9 @@ function pageSource(url) {
   return { kind: "page" };
 }
 
-// Панель — в главном фрейме, даже если выделение во вложенном. panel.js внедряем, только если
+// Панель — в главном фрейме. panel.js внедряем, только если
 // его там ещё нет или остался осиротевший экземпляр после перезагрузки расширения.
-// source — { kind: "page" } | { kind: "selection", text } | { kind: "video", videoId }; mode —
+// source — { kind: "page" } | { kind: "video", videoId }; mode —
 // режим панели: "ask" — только вопросы, "" — последняя длина краткого содержания.
 // См. open в panel.js.
 async function openPanel(tabId, source = { kind: "page" }, mode = "") {
@@ -156,44 +149,10 @@ async function openPanel(tabId, source = { kind: "page" }, mode = "") {
   if (!(await tryOpen())) throw new Error("the panel didn't start");
 }
 
-// Выделенное со страницы, во фрейме выделения: в тексте из меню Chrome теряет переносы строк.
-// Выделение в input/textarea Selection API не видит — тогда берём выделенное в поле с фокусом.
-// Во фрейм с другого сайта activeTab доступа не даёт — тогда текст из меню.
-async function selectedText(tabId, frameId, menuText) {
-  try {
-    const [injection] = await chrome.scripting.executeScript({
-      target: { tabId, frameIds: [frameId] },
-      func: () => {
-        const text = window.getSelection()?.toString() ?? "";
-        if (text.trim()) return text;
-        const field = document.activeElement;
-        if (field?.matches("textarea, input") && field.selectionEnd > field.selectionStart) {
-          return field.value.slice(field.selectionStart, field.selectionEnd);
-        }
-        return "";
-      },
-    });
-    if (injection?.result?.trim()) return injection.result;
-  } catch {
-    // фрейм недоступен — ниже текст из меню
-  }
-  return menuText;
-}
-
-async function openFromMenu(menu, info, tab) {
-  if (!menu.selection) {
-    await openPanel(tab.id, pageSource(tab.url));
-  } else {
-    const text = await selectedText(tab.id, info.frameId ?? 0, info.selectionText ?? "");
-    await openPanel(tab.id, { kind: "selection", text });
-  }
-}
-
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  const menu = Object.hasOwn(MENUS, info.menuItemId) ? MENUS[info.menuItemId] : null;
-  if (!menu || !tab?.id) return;
+  if (info.menuItemId !== MENU_ID || !tab?.id) return;
   // chrome://, Chrome Web Store, встроенный просмотрщик PDF — туда скрипты не внедрить
-  openFromMenu(menu, info, tab).catch((err) =>
+  openPanel(tab.id, pageSource(tab.url)).catch((err) =>
     console.warn("[ot] не удалось показать панель краткого содержания:", err.message),
   );
 });
@@ -603,21 +562,7 @@ async function converse(job, { text, title, kind, question, summary, history }) 
   safePost(job.port, { type: "web-status", enabled: web });
   if (web) {
     job.queued = 1;
-    const url = parseSearxngUrl(summarySearxngUrl);
-    if (!url) {
-      throw new OllamaError(ErrorCode.BAD_RESPONSE, "Enter a valid SearXNG base URL in Settings.");
-    }
-    if (!(await chrome.permissions.contains({ origins: [`${url.origin}/*`] }))) {
-      throw new OllamaError(ErrorCode.BAD_RESPONSE, `Allow access to SearXNG at ${url.origin} by saving the web search settings again.`);
-    }
-    if (numCtx < 8192) {
-      throw new OllamaError(ErrorCode.BAD_RESPONSE, "Automatic web search needs at least 8192 context tokens. Increase context length in Ollama.");
-    }
-    if (!model) throw new OllamaError(ErrorCode.MODEL_NOT_FOUND, "No model selected in the popup");
-    const { capabilities } = await showModel(ollamaUrl, model, { signal: job.controller.signal });
-    if (!capabilities.includes("tools")) {
-      throw new OllamaError(ErrorCode.BAD_RESPONSE, "This model does not support tools. Choose a model with tool support or disable automatic web search in Settings.");
-    }
+    await checkWebAccess({ searxngUrl: summarySearxngUrl, numCtx, ollamaUrl, model, signal: job.controller.signal });
   }
   // Веб-результатам и схемам инструментов оставляем отдельное место в том же num_ctx.
   const budget = web ? Math.floor(inputChars(numCtx) * 0.28) : inputChars(numCtx);

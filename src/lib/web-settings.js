@@ -1,5 +1,5 @@
-import { parseServerUrl } from "../../lib/host-permission.js";
-import { normalizeUrl } from "../../lib/settings.js";
+import { parseServerUrl } from "./host-permission.js";
+import { normalizeUrl } from "./settings.js";
 
 export const WEB_DEFAULTS = Object.freeze({
   summaryWebEnabled: true,

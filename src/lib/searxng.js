@@ -1,5 +1,5 @@
 // JSON API SearXNG; используется и проверкой настроек, и инструментом модели.
-import { ErrorCode, OllamaError, abortedError } from "../../lib/ollama.js";
+import { ErrorCode, OllamaError, abortedError } from "./ollama.js";
 import { parseSearxngUrl } from "./web-settings.js";
 
 const TIMEOUT_MS = 30_000;
