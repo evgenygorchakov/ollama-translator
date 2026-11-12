@@ -187,18 +187,32 @@ async function warmUpUnlessStopped() {
 }
 
 async function check() {
+  const baseUrl = settings.ollamaUrl;
   els.refresh.disabled = true;
   els.model.disabled = true;
   setStatus("checking", "Checking Ollama…");
   try {
     [version, models] = await Promise.all([
-      getVersion(settings.ollamaUrl),
-      listModels(settings.ollamaUrl),
+      getVersion(baseUrl),
+      listModels(baseUrl),
     ]);
     // GET-запросы к хостам из host_permissions Chrome шлёт без Origin, и Ollama их пускает;
     // 403 из-за OLLAMA_ORIGINS проявляется только на POST — проверяем им.
     const probe = models.find((m) => m.name === settings.model) ?? models[0];
-    if (probe) await showModel(settings.ollamaUrl, probe.name);
+    if (probe) await showModel(baseUrl, probe.name);
+    // Пока шли запросы, модель или сервер могли поменять на странице настроек.
+    settings = await getSettings();
+    if (settings.ollamaUrl !== baseUrl) {
+      await check();
+      return;
+    }
+    // Первый запуск: сохраняем первую модель из отсортированного списка.
+    // Сохранённую модель не заменяем, даже если её больше нет на сервере.
+    if (!settings.model && models.length) {
+      const model = models[0].name;
+      await setSettings({ model });
+      settings.model = model;
+    }
     renderModels();
     updateModelStatus();
   } catch (err) {

@@ -158,3 +158,9 @@ Stop cancels the wait immediately.
      restart).
 3. For YouTube dubbing run Silero on port 5011: [`tools/silero`](tools/silero/README.md) on
    Windows, `sup/optional/voice` on Linux.
+
+The popup saves model changes immediately; changes on the Settings page apply when you press
+Save. If no model is saved, opening the popup automatically selects and saves the first available
+model alphabetically after a successful connection check. An existing choice is kept even when
+that model is missing from the server; choose a replacement manually. An empty list or a failed
+connection does not change the saved choice.
