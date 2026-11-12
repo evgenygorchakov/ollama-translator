@@ -47,7 +47,6 @@ async function answer(job, msg) {
   const { summaryWebEnabled: web, summarySearxngUrl: searxngUrl } = await getWebSettings();
   const signal = job.controller.signal;
   if (signal.aborted) throw abortedError();
-  safePost(job.port, { type: "web-status", enabled: web });
   job.queued = true;
   const slot = {
     signal,

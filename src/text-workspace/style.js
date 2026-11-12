@@ -61,7 +61,6 @@
     .sources, .answer-notes { margin-top: 8px; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
     .sources a { display: block; margin-top: 4px; color: var(--accent); }
     .answer-notes:empty { display: none; }
-    .web-status { margin-bottom: 5px; color: var(--muted); font-size: 10px; }
     .notice { padding: 0 12px 10px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
     .notice:empty { display: none; }
     .notice[data-error] { color: var(--error); }
@@ -73,8 +72,7 @@
       outline: none !important; line-height: 1.5; cursor: text;
     }
     textarea::placeholder { color: var(--muted); opacity: 1; }
-    .compose-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 5px; }
-    .hint { color: var(--muted); font-size: 10px; }
+    .compose-tools { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding-top: 5px; }
     .send { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: var(--accent-fill); color: var(--button-fg); padding: 0; font-size: 19px; }
     .send:hover { background: var(--button-hover); }
     .send[data-busy] { font-size: 11px; }

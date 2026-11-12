@@ -9,7 +9,6 @@
   let disposed = false;
   let enabled = false;
   let cursorEnabled = true;
-  let webEnabled = true;
   let color = config.color(config.defaultColor);
   let settingsVersion = 0;
   let current = null;
@@ -175,13 +174,6 @@
     state.panel.setAttribute("aria-busy", String(state.busy));
   }
 
-  function renderWebStatus(state, enabled = webEnabled) {
-    state.webStatus.textContent = enabled ? "Web search · Auto" : "Web search · Off";
-    state.webStatus.title = enabled
-      ? "Searches when needed using the web search settings shared with Ask freely"
-      : "Enable automatic web search in Settings to search from this panel";
-  }
-
   function renderSources(turn, sources) {
     const links = [];
     const references = [];
@@ -220,7 +212,6 @@
     state.conn?.close();
     state.conn = null;
     state.busy = false;
-    renderWebStatus(state);
     state.pending?.row.removeAttribute("data-pending");
     updateComposer(state);
   }
@@ -299,9 +290,7 @@
         onMessage(msg) {
           if (current !== state || !state.busy) return;
           const pending = state.pending;
-          if (msg?.type === "web-status") {
-            renderWebStatus(state, msg.enabled === true);
-          } else if (msg?.type === "progress") {
+          if (msg?.type === "progress") {
             pending.answer.textContent = "";
             pending.label.textContent = msg.step === "web-search"
               ? `Searching the web: ${String(msg.detail ?? "").slice(0, 160)}…` : "Generating…";
@@ -417,8 +406,10 @@
       ["Summarize", "Summarize the main idea of this passage. Answer in the selected translation language."],
     ]) {
       suggestions.append(button("", title, title, () => {
+        if (state.busy) return;
         state.input.value = question;
         updateComposer(state);
+        submit(state);
         state.input.focus({ preventScroll: true });
       }));
     }
@@ -430,8 +421,6 @@
     const notice = element("div", "notice");
     notice.setAttribute("role", "status");
     const form = element("form", "composer");
-    const webStatus = element("div", "web-status");
-    webStatus.setAttribute("role", "status");
     const input = element("textarea");
     input.rows = 2;
     input.maxLength = config.maxQuestion;
@@ -450,8 +439,8 @@
       if (state.busy) stop(state);
       else submit(state);
     });
-    composeTools.append(element("span", "hint", "Enter to send · Shift+Enter for a new line"), send);
-    form.append(webStatus, input, composeTools);
+    composeTools.append(send);
+    form.append(input, composeTools);
     form.addEventListener("submit", (event) => { event.preventDefault(); submit(state); });
     const foot = element("div", "foot");
     const contextLabel = element("div", "context");
@@ -469,13 +458,12 @@
     for (const event of ["keydown", "keyup", "keypress", "pointerdown", "pointerup", "click"]) {
       box.addEventListener(event, (e) => e.stopPropagation());
     }
-    Object.assign(state, { box, trigger, panel, suggestions, thread, notice, input, send, webStatus,
+    Object.assign(state, { box, trigger, panel, suggestions, thread, notice, input, send,
       foot, contextLabel, meter, meterFill, warning, resize: new ResizeObserver(schedulePlace) });
     if (state.text.length > config.maxText) {
       showNotice(state, `Select less text: the limit is ${config.maxText.toLocaleString("en-US")} characters.`, true);
     }
     updateComposer(state);
-    renderWebStatus(state);
     renderContext(state);
     return state;
   }
@@ -526,7 +514,7 @@
   }
 
   function settingsChanged(changes, area) {
-    if (area !== "local" || ![config.enabledKey, config.cursorKey, config.colorKey, "summaryWebEnabled"].some((key) => key in changes)) return;
+    if (area !== "local" || ![config.enabledKey, config.cursorKey, config.colorKey].some((key) => key in changes)) return;
     if (config.enabledKey in changes && changes[config.enabledKey].newValue !== true) {
       dispose();
       return;
@@ -539,18 +527,13 @@
     try {
       const stored = await chrome.storage.local.get({
         [config.enabledKey]: false, [config.cursorKey]: true, [config.colorKey]: config.defaultColor,
-        summaryWebEnabled: true,
       });
       if (disposed || version !== settingsVersion) return;
       enabled = stored[config.enabledKey] === true;
       cursorEnabled = stored[config.cursorKey] !== false;
-      webEnabled = stored.summaryWebEnabled === true;
       color = config.color(stored[config.colorKey]);
       if (!enabled) { dispose(); return; }
-      if (current) {
-        applyColor(current.box);
-        if (!current.busy) renderWebStatus(current);
-      }
+      if (current) applyColor(current.box);
       applyCursor();
     } catch { dispose(); }
   }

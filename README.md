@@ -24,7 +24,7 @@ Animations respect reduced-motion preferences.
 The button appears beside the pointer where you finish selecting, shifts inward near window
 edges, and follows the text when scrolling. Keyboard selections place it beside the selected text.
 
-Ask a question, or use Translate / Explain / Summarize to fill the question field. **Enter**
+Ask a question, or use Translate / Explain / Summarize to send a request immediately. **Enter**
 sends; **Shift+Enter** inserts a new line. Answers, including translations and summaries, use the
 **Translation language** selected in Settings (Russian by default), even for English source
 text and quick actions, unless the question explicitly requests another language.
@@ -32,8 +32,8 @@ Answers stream into the panel, with **Stop**,
 **Copy**, **Reset** and a context-usage indicator. Only the selection and this panel's
 completed questions and answers go to the selected Ollama model, together with search excerpts
 when web search is used. No request is made merely by selecting or hovering. The panel shares
-the automatic web search setting and SearXNG address with **Ask freely**. It shows whether
-search is enabled, the query while searching, and clickable sources beneath each answer.
+the automatic web search setting and SearXNG address with **Ask freely**. It shows
+the query while searching and clickable sources beneath each answer.
 Copy includes source links; follow-up questions retain references from earlier answers.
 Translation, rewriting and explanations that need no outside facts can be answered without searching.
 Stop and closing the panel also cancel an in-progress search.
