@@ -40,6 +40,7 @@ import { chatWithRetry, toOllamaError } from "../lib/translate.js";
 import { withPrioritySlot } from "../lib/priority.js";
 import { onPortClosed, safePost } from "../lib/port.js";
 import { onStop, registerQueue } from "../lib/stop.js";
+import { onContextReset } from "../lib/context-reset.js";
 import { pageCaptions, parseJson3 } from "../lib/youtube-captions.js";
 import {
   SUMMARY_LENGTHS,
@@ -626,11 +627,17 @@ const jobs = new Map(); // port → job
 // «Стоп»: панель покажет «Остановлено» и «Повторить»; ошибку ABORTED она не получит. Готовые
 // заметки остаются в кэше — повтор продолжит с прерванной части; поиск ответа на вопрос
 // начнётся заново.
-onStop(() => {
+function stopJobs() {
   for (const job of jobs.values()) {
     safePost(job.port, { type: "stopped" });
     job.controller.abort();
   }
+}
+onStop(stopJobs);
+onContextReset(async () => {
+  stopJobs();
+  notesCache = Promise.resolve(new Map());
+  await chrome.storage.session.remove(NOTES_KEY);
 });
 
 // Для «Стоп» в popup: между частями длинного текста слоты на миг свободны.

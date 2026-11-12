@@ -1,19 +1,17 @@
-import { ensureMenu } from "../lib/menus.js";
-
-const MENU_ID = "open-popup";
+import { resetAllContexts } from "../lib/context-reset.js";
 
 chrome.runtime.onInstalled.addListener(() => {
-  ensureMenu({
-    id: MENU_ID,
-    title: "Open Ollama Translator",
-    contexts: ["all"],
+  // Пункт мог сохраниться от предыдущей версии расширения.
+  chrome.contextMenus.remove("open-popup", () => {
+    void chrome.runtime.lastError;
   });
 });
 
-chrome.contextMenus.onClicked.addListener((info) => {
-  if (info.menuItemId !== MENU_ID) return;
-  // Без промежуточного await, чтобы сохранить жест пользователя.
-  chrome.action.openPopup().catch((err) =>
-    console.warn("[ot] не удалось открыть расширение:", err.message),
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type !== "resetContext" || sender.tab) return;
+  resetAllContexts().then(
+    () => sendResponse({}),
+    (err) => sendResponse({ error: err.message }),
   );
+  return true;
 });

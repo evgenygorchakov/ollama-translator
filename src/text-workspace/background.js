@@ -9,6 +9,7 @@ import { chatWithRetry, toOllamaError } from "../lib/translate.js";
 import { withPrioritySlot } from "../lib/priority.js";
 import { onPortClosed, safePost } from "../lib/port.js";
 import { onStop, registerQueue } from "../lib/stop.js";
+import { onContextReset } from "../lib/context-reset.js";
 import { keepAwake } from "../lib/keepalive.js";
 import { getWebSettings } from "../lib/web-settings.js";
 import { checkWebAccess, webChat } from "../lib/web.js";
@@ -35,6 +36,7 @@ function stopJobs() {
   }
 }
 onStop(stopJobs);
+onContextReset(stopJobs);
 registerQueue(() => [...jobs.values()].filter((job) => job.queued).length);
 
 async function answer(job, msg) {

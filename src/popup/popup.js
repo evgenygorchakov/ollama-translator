@@ -17,6 +17,7 @@ const els = {
   refresh: $("refresh"),
   options: $("options"),
   stop: $("stop"),
+  resetContext: $("reset-context"),
   translate: $("translate"),
   original: $("original"),
   progress: $("progress"),
@@ -92,6 +93,7 @@ function updateButtons() {
   els.original.disabled = acting;
   els.stop.hidden = !activity.busy && !activity.queued;
   els.stop.disabled = acting;
+  els.resetContext.disabled = acting;
 }
 
 function renderProgress() {
@@ -258,9 +260,16 @@ const resumePage = () =>
 // Запросы обрываются всегда, ошибкой может закончиться только выгрузка.
 const stopAll = () => act(() => askBackground({ type: "stopAll" }), "Model not unloaded");
 
+const resetContext = () => act(async () => {
+  await askBackground({ type: "resetContext" });
+  await renderContext();
+  showNote("Context reset. Conversations cleared in all tabs.");
+}, "Couldn't reset context");
+
 els.translate.addEventListener("click", () => (pageState?.paused ? resumePage() : togglePage()));
 els.original.addEventListener("click", togglePage);
 els.stop.addEventListener("click", stopAll);
+els.resetContext.addEventListener("click", resetContext);
 els.options.addEventListener("click", () => chrome.runtime.openOptionsPage());
 
 settings = await getSettings();

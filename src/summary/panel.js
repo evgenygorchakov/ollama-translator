@@ -427,6 +427,10 @@
     renderFoot();
   }
 
+  function onContextReset(msg) {
+    if (msg?.type === "resetContext" && current) reset();
+  }
+
   // Вопросы по тексту — только когда есть что читать; свободный разговор и сброс доступны всегда.
   function showControls(shown) {
     current.composers.ask.box.hidden = !shown;
@@ -1079,5 +1083,9 @@
       return false;
     }
   };
-  ns.summary = { open, alive, dispose: close };
+  chrome.runtime.onMessage.addListener(onContextReset);
+  ns.summary = { open, alive, dispose() {
+    close();
+    try { chrome.runtime.onMessage.removeListener(onContextReset); } catch { /* расширение перезагружено */ }
+  } };
 })();

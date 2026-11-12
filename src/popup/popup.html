@@ -30,10 +30,13 @@
       <code id="hint-code" hidden></code>
     </div>
 
-    <label class="field">
-      <span>Model</span>
+    <div class="field">
+      <div class="field-heading">
+        <label for="model">Model</label>
+        <button id="reset-context" type="button" title="Clear conversations in all tabs and reset context usage" disabled>Reset context</button>
+      </div>
       <select id="model" disabled></select>
-    </label>
+    </div>
 
     <div id="context" class="context" hidden>
       <div id="context-text"></div>
@@ -55,7 +58,7 @@
       <button id="original" type="button" hidden>Show original</button>
     </div>
     <p id="progress" class="note" hidden></p>
-    <p id="note" class="note" hidden></p>
+    <p id="note" class="note" role="status" hidden></p>
 
     <div class="actions">
       <button id="summary" type="button" disabled>Summary</button>

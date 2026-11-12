@@ -24,8 +24,8 @@ Animations respect reduced-motion preferences.
 The button appears beside the pointer where you finish selecting, shifts inward near window
 edges, and follows the text when scrolling. Keyboard selections place it beside the selected text.
 
-Ask a question, or use Explain / Summarize / Rewrite to fill the question field. **Enter**
-sends; **Shift+Enter** inserts a new line. Answers, including summaries and rewrites, use the
+Ask a question, or use Translate / Explain / Summarize to fill the question field. **Enter**
+sends; **Shift+Enter** inserts a new line. Answers, including translations and summaries, use the
 **Translation language** selected in Settings (Russian by default), even for English source
 text and quick actions, unless the question explicitly requests another language.
 Answers stream into the panel, with **Stop**,
@@ -125,6 +125,10 @@ If request preparation omits old messages, shortens earlier answers or trims web
 warning is retained even at low context usage, after retries and after stopping generation,
 and is shown with the context block when usage is available.
 The existing **Reset** button clears both histories, both indicators and all these warnings.
+**Reset context** in the extension popup clears conversations and context-usage counters in
+all open Summary / Ask and Text workspace panels, including cached summary notes. It cancels
+their pending answers and keeps the source text, selected passage and loaded model available.
+Page translation and dubbing continue; their next completed request can update the popup counter again.
 During generation or after an interrupted attempt, the context block stays hidden until a final response
 completes. An error does not add partial answers to history.
 

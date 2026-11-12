@@ -354,7 +354,7 @@
     }
   }
 
-  function reset(state) {
+  function reset(state, focus = true) {
     finish(state);
     state.history = [];
     state.pending = null;
@@ -369,7 +369,11 @@
     showNotice(state, state.text.length > config.maxText ? `Select less text: the limit is ${config.maxText.toLocaleString("en-US")} characters.` : "", state.text.length > config.maxText);
     updateComposer(state);
     renderContext(state);
-    state.input.focus({ preventScroll: true });
+    if (focus) state.input.focus({ preventScroll: true });
+  }
+
+  function onContextReset(msg) {
+    if (msg?.type === "resetContext" && current) reset(current, false);
   }
 
   function build(selection) {
@@ -408,9 +412,9 @@
     source.append(element("div", "eyebrow", `Selection · ${state.text.length.toLocaleString("en-US")} characters`), quote);
     const suggestions = element("div", "suggestions");
     for (const [title, question] of [
+      ["Translate", "Translate this passage into the selected translation language. Preserve its meaning and formatting. Return only the translation."],
       ["Explain", "Explain this passage in simple terms. Answer in the selected translation language."],
       ["Summarize", "Summarize the main idea of this passage. Answer in the selected translation language."],
-      ["Rewrite", "Rewrite this passage more clearly, preserving its meaning. Write in the selected translation language."],
     ]) {
       suggestions.append(button("", title, title, () => {
         state.input.value = question;
@@ -571,6 +575,7 @@
     window.removeEventListener("pagehide", pageHide);
     window.removeEventListener("pageshow", refreshSettings);
     try { chrome.storage.onChanged.removeListener(settingsChanged); } catch { /* расширение перезагружено */ }
+    try { chrome.runtime.onMessage.removeListener(onContextReset); } catch { /* расширение перезагружено */ }
   }
 
   document.addEventListener("selectionchange", scheduleSelection);
@@ -585,6 +590,7 @@
   window.addEventListener("pagehide", pageHide);
   window.addEventListener("pageshow", refreshSettings);
   chrome.storage.onChanged.addListener(settingsChanged);
+  chrome.runtime.onMessage.addListener(onContextReset);
   ns.textWorkspace = { alive, dispose };
   void refreshSettings();
 })();
