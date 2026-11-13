@@ -1,9 +1,9 @@
-# Ollama Translator
+# PageGloss
 
 Translate web pages, summarize articles and ask questions about what you read without
-leaving your browser. Ollama Translator is a Chrome and Firefox extension that uses your
-own [Ollama](https://ollama.com) model, so you can work with text locally and choose the
-model that runs on your computer.
+leaving your browser. PageGloss is a Chrome and Firefox extension for working with web
+content using models you run on your own computer. It currently connects through
+[Ollama](https://ollama.com), so you can work with text locally and choose your model.
 
 - **Translate in place.** Read pages in any of 14 target languages, hover to see the original,
   or translate just the text you select. Russian is the default.
@@ -41,8 +41,8 @@ downloaded model. The instructions below cover Windows and Linux.
 With [Git](https://git-scm.com/downloads) installed, run:
 
 ```sh
-git clone https://github.com/evgenygorchakov/ollama-translator.git
-cd ollama-translator
+git clone https://github.com/evgenygorchakov/ollama-translator.git pagegloss
+cd pagegloss
 ```
 
 Alternatively, choose **Code → Download ZIP** on the
