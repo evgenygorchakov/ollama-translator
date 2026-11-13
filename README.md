@@ -1,166 +1,184 @@
 # Ollama Translator
 
-Chrome and Firefox extension that translates and summarizes web pages and selected text through a
-local [Ollama](https://ollama.com) and dubs YouTube videos in Russian through Silero.
+Translate web pages, summarize articles and ask questions about what you read without
+leaving your browser. Ollama Translator is a Chrome and Firefox extension that uses your
+own [Ollama](https://ollama.com) model, so you can work with text locally and choose the
+model that runs on your computer.
 
-The summary panel has two question fields: “Ask about the page…” answers only from the source
-text; “Ask freely…” can also use the model’s own knowledge and reasoning. Each keeps its own
-conversation history. Both use the selected Ollama model and response language.
+- **Translate in place.** Read pages in any of 14 target languages, hover to see the original,
+  or translate just the text you select. Russian is the default.
+- **Ask questions.** Get a page summary, ask about its contents, or open a conversation
+  beside a selected passage with the experimental Text workspace.
+- **Search when needed.** Connect SearXNG to let the model find current information and
+  include source links in its answers.
+- **Listen in Russian.** Dub YouTube videos from their captions with a local Silero speech
+  server.
+- **Load from source.** The extension needs no build step or npm dependencies.
 
-## Text workspace (experimental)
+For example, translating a selection into Russian looks like this. The wording depends on
+your model:
 
-In Settings, turn on **Text workspace** and allow website access when the browser asks.
-The switch applies immediately to open and future HTTP(S) pages; it is off by default.
-Select text, then hover over **✦ Ask** to reveal a compact conversation panel. Click the
-button (or press **Alt+Enter** while it is visible) to focus the question field. The orange
-Figma-style cursor has rounded corners, a white outline and a soft shadow, and can be switched
-off separately. For now, the same custom cursor also replaces link, button, text-input and
-other cursors while the mode is enabled, including inside the extension's panels and settings.
-**Main color** in Text workspace settings offers seven colors, with orange as the default.
-The popup, settings, translation, summary and dubbing panels share the Text workspace theme.
-Color changes save immediately and apply throughout the extension, including open panels.
-Secondary text has stronger contrast in light and dark themes.
-Animations respect reduced-motion preferences.
-The button appears beside the pointer where you finish selecting, shifts inward near window
-edges, and follows the text when scrolling. Keyboard selections place it beside the selected text.
-
-Ask a question, or use Translate / Explain / Summarize to send a request immediately. **Enter**
-sends; **Shift+Enter** inserts a new line. Answers, including translations and summaries, use the
-**Translation language** selected in Settings (Russian by default), even for English source
-text and quick actions, unless the question explicitly requests another language.
-Answers stream into the panel, with **Stop**,
-**Copy**, **Reset** and a context-usage indicator. Only the selection and this panel's
-completed questions and answers go to the selected Ollama model, together with search excerpts
-when web search is used. No request is made merely by selecting or hovering. The panel shares
-the automatic web search setting and SearXNG address with **Ask freely**. It shows
-the query while searching and clickable sources beneath each answer.
-Copy includes source links; follow-up questions retain references from earlier answers.
-Translation, rewriting and explanations that need no outside facts can be answered without searching.
-Stop and closing the panel also cancel an in-progress search.
-
-Each selection starts an independent conversation. Follow-up questions keep that selection
-and its history; Reset clears the conversation but keeps the selection. Closing the panel
-(Escape, × or a click outside), selecting another passage, or disabling the mode cancels
-the request and discards the conversation. History stays in memory, never on disk, and is
-not shared with translations or either page-question field. This uses the same loaded model,
-not a second model instance or a separate context-length setting.
-
-Selections are limited to 12,000 characters and questions to 2,000. The loaded model's
-actual context can impose a smaller limit; an oversized selection is rejected rather than
-silently shortened. Recent complete exchanges are kept within an estimated history budget,
-up to 24 exchanges / 64,000 characters. Web search reserves space for tool results in the same
-context, so less space is available for the selection and history. The panel warns when older
-messages are omitted, search excerpts are shortened, or an answer reaches its generation limit.
-Context estimates are approximate; Ollama's final
-token counts appear after a completed answer.
-
-The automatic button is for ordinary page text, not form fields or editable areas. Browser
-internal pages, extension-store pages and the built-in PDF viewer do not allow this UI.
-
-The feature lives in [`src/text-workspace`](src/text-workspace), while its shared palette,
-cursor artwork and extension theme live in [`src/shared/theme.js`](src/shared/theme.js). To remove it,
-turn it off first, delete that directory, remove its import from `src/background.js` and
-its script tag from `src/options/options.html`, then reload the extension and open pages.
-It has no dependencies on the translation, summary or dubbing modules.
-
-## Web search
-
-For automatic web search in **Ask freely** and **Text workspace**, run [SearXNG](https://docs.searxng.org/), open the
-extension's Settings, enable “Search the web automatically when needed”, enter the SearXNG base
-address (default `http://127.0.0.1:8888`), and press Save. Allow access to that address when the
-browser asks. The address must be reachable from the browser; for Docker, use the published
-host port, not the container name. Press Check to run a sample search through its JSON API.
-Select a model that supports tools and set a context of at least 8192 in Ollama. The model
-decides when to search, then answers with numbered references and links to the search results.
-Each question allows up to 6 tool calls across 3 rounds; retrieved text is limited to fit the
-context. A simple question can be answered without searching.
-
-Enable JSON in SearXNG's `settings.yml`, then restart its container if the setting changed:
-
-```yaml
-search:
-  formats:
-    - html
-    - json
+```text
+Selected text:  "The meeting starts at noon."
+Action:         Right-click → Translate selection
+Language:       Russian (default)
+Example result: "Встреча начинается в полдень."
 ```
 
-Merge this into the existing `search` section. A 403 response can mean JSON output is disabled;
-see the [SearXNG Search API](https://docs.searxng.org/dev/search_api.html). A 429 response means
-requests are being rate limited. CAPTCHA or limits from individual search engines can reduce
-the results even when the JSON API works.
+[Get started](#get-started) · [Everyday use](#everyday-use) ·
+[Optional features](#optional-features) · [Troubleshooting](#troubleshooting) ·
+[Detailed guide](docs/usage.md) · [Development](#development)
 
-No Ollama API key or Ollama cloud search service is used. Search queries go to your SearXNG
-server and its configured search engines; your selected Ollama model generates the answer.
-The model receives search excerpts, not full page downloads: SearXNG does not replace
-`web_fetch`. With automatic search disabled, Ask freely and Text workspace use the provided
-text and the model's own knowledge. Questions in “Ask about the page…” always use only the source text.
+---
 
-## Context length and usage
+## Get started
 
-Set context length in the **Ollama app**, or use `OLLAMA_CONTEXT_LENGTH` when running its server.
-The extension does not send `num_ctx` overrides; old context settings saved in the extension are
-ignored. After loading the model with Ollama's settings, it reads the actual window from
-`/api/ps` and uses it to fit source text, conversation history and search results. The loaded
-model's window may be smaller than the setting in Ollama.
+You need **Chrome 127+ or Firefox 140+**, [Ollama](https://ollama.com/download), and a
+downloaded model. The instructions below cover Windows and Linux.
 
-Each question field has its own **Context: used / total tokens · percent** indicator and meter.
-“Ask about the page” and “Ask freely” track their independent conversations; translations,
-summaries, page-reading steps and intermediate web tool calls do not overwrite them. The popup
-retains its separate counter for the last completed request across operations.
+### 1. Download the extension
 
-Exact usage is the final request's input tokens plus generated tokens, including thinking, as
-reported by Ollama after generation finishes. History is already included in that input;
-independent requests and intermediate steps are never added together. The entire context block
-stays hidden until both usage and capacity are available. Hover for the input/output breakdown.
-A request can process more tokens than the window retains; the count and percentage show that
-overflow, while the meter stops at 100%.
+With [Git](https://git-scm.com/downloads) installed, run:
 
-The conversation also shows an **estimated history budget** (3 characters per token). Page text,
-prompts, response space and web search reduce the room available for history. For long pages,
-the smallest history budget across page-search and final-answer steps is used. After a reply,
-the estimate includes that reply for the next turn; the next question and the model's tokenizer
-can change the actual fit. Warnings appear at 80% of either the context or history budget.
+```sh
+git clone https://github.com/evgenygorchakov/ollama-translator.git
+cd ollama-translator
+```
 
-If request preparation omits old messages, shortens earlier answers or trims web tool text, a
-warning is retained even at low context usage, after retries and after stopping generation,
-and is shown with the context block when usage is available.
-The existing **Reset** button clears both histories, both indicators and all these warnings.
-**Reset context** in the extension popup clears conversations and context-usage counters in
-all open Summary / Ask and Text workspace panels, including cached summary notes. It cancels
-their pending answers and keeps the source text, selected passage and loaded model available.
-Page translation and dubbing continue; their next completed request can update the popup counter again.
-During generation or after an interrupted attempt, the context block stays hidden until a final response
-completes. An error does not add partial answers to history.
+Alternatively, choose **Code → Download ZIP** on the
+[repository page](https://github.com/evgenygorchakov/ollama-translator) and extract it.
+Keep this folder: the browser loads the extension directly from it.
 
-Changing context length in Ollama takes effect on the next operation. Reopen the popup or press
-⟳ to refresh its capacity. The extension still limits source text to 150,000 characters for
-summaries and questions, and selection translation to 5,000 characters.
+### 2. Prepare Ollama
 
-While loading a model or waiting for a chat response to begin, the extension checks Ollama
-every 30 seconds and allows 10 seconds for each check. If Ollama stops responding, it cancels
-the attempt; normal retries still apply. Slow loading can continue while Ollama responds.
-Stop cancels the wait immediately.
+Install and start [Ollama](https://ollama.com/download). Allow requests from browser
+extensions using the instructions for your operating system below.
 
-## Setup
+**Windows — PowerShell:**
 
-1. Install [Ollama](https://ollama.com/download), pull a model (`ollama pull gemma4`), allow
-   extension origins and restart Ollama:
-   - Windows: `setx OLLAMA_ORIGINS "chrome-extension://*,moz-extension://*"`, quit Ollama from the
-     tray and start it from the Start menu;
-   - Linux (systemd service from the official install script):
+```powershell
+setx OLLAMA_ORIGINS "chrome-extension://*,moz-extension://*"
+```
 
-     ```bash
-     sudo mkdir -p /etc/systemd/system/ollama.service.d && printf '[Service]\nEnvironment="OLLAMA_ORIGINS=chrome-extension://*,moz-extension://*"\n' | sudo tee /etc/systemd/system/ollama.service.d/origins.conf && sudo systemctl daemon-reload && sudo systemctl restart ollama
-     ```
-2. Load the extension and pick the model in its popup:
-   - Chrome: `chrome://extensions` → Developer mode → Load unpacked → project folder;
-   - Firefox: `about:debugging` → This Firefox → Load Temporary Add-on → `manifest.json` (until
-     restart).
-3. For YouTube dubbing run Silero on port 5011: [`tools/silero`](tools/silero/README.md) on
-   Windows, `sup/optional/voice` on Linux.
+Quit Ollama from the system tray, then start it again from the Start menu.
 
-The popup saves model changes immediately; changes on the Settings page apply when you press
-Save. If no model is saved, opening the popup automatically selects and saves the first available
-model alphabetically after a successful connection check. An existing choice is kept even when
-that model is missing from the server; choose a replacement manually. An empty list or a failed
-connection does not change the saved choice.
+**Linux — Ollama installed as a systemd service:**
+
+```sh
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+printf '[Service]\nEnvironment="OLLAMA_ORIGINS=chrome-extension://*,moz-extension://*"\n' | sudo tee /etc/systemd/system/ollama.service.d/origins.conf
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
+```
+
+If you run Ollama manually instead of as a service, start it in a separate terminal with:
+
+```sh
+OLLAMA_ORIGINS='chrome-extension://*,moz-extension://*' ollama serve
+```
+
+See [Ollama's server configuration guide](https://docs.ollama.com/faq#how-do-i-configure-ollama-server)
+for other installation methods.
+
+Download a model, for example [Gemma 4](https://ollama.com/library/gemma4), or use one you
+already have. Run these commands in a terminal; model downloads can be several gigabytes:
+
+```sh
+ollama pull gemma4
+ollama list
+```
+
+### 3. Load the extension and translate a page
+
+| Browser | Installation |
+| --- | --- |
+| Chrome | Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the folder containing `manifest.json`. |
+| Firefox | Open `about:debugging`, choose **This Firefox → Load Temporary Add-on**, and select `manifest.json`. Load it again after restarting Firefox. |
+
+1. Open an ordinary web page, such as an article, and click the extension icon.
+2. Wait for the Ollama status to show **OK**, then select your model. On first connection,
+   the popup selects the first available model alphabetically; changing it saves immediately.
+3. Open **Settings**. Choose your **Translation language** if you want something other than
+   Russian. **If you have not set up SearXNG, uncheck “Search the web automatically when
+   needed”**, which is enabled by default. Press **Save**.
+4. Return to the article, open the extension popup and click **Translate page**. Text is
+   translated as you scroll. Click **Show original** to restore it.
+
+The default Ollama address is `http://127.0.0.1:11434`. If your server is elsewhere, change
+**Ollama address** in Settings, press **Check**, then **Save**, and grant access when asked.
+The address must be reachable from the machine running the browser.
+
+---
+
+## Everyday use
+
+| You want to… | Do this |
+| --- | --- |
+| Translate a page | Click **Translate page**, or press **Alt+Shift+T** to toggle translation. Hover over translated text to see the original. |
+| Translate a passage | Select text, right-click and choose **Translate selection**. |
+| Get the main points | Click **Summary** in the popup. |
+| Ask about an article | Click **Ask**, then use **Ask about the page…**. This mode uses only the source text. |
+| Ask a broader question | Use **Ask freely…**. It can use the model's knowledge and, when configured, web search. |
+| Start fresh | Use **Reset** in a panel, or **Reset context** in the popup to clear conversations across open panels. |
+| Stop model work | Click **Stop** in the popup or press **Alt+Shift+S** to cancel model requests and unload the model. |
+
+The two question fields keep separate histories and use your selected model and response
+language. See the [detailed guide](docs/usage.md) for conversation controls, limits and
+context usage.
+
+## Optional features
+
+### Text workspace: work with a passage
+
+Enable **Text workspace** in Settings and allow website access. Select text and hover over
+**✦ Ask** to open a conversation beside it. Ask your own question, or click **Translate**,
+**Explain** or **Summarize**. Answers stream into the panel; you can stop or copy them.
+
+This experimental mode is off by default. Selecting text or hovering does not send a
+request. Each selection has its own conversation, which is discarded when you close the
+panel. [Controls, appearance and limits →](docs/usage.md#text-workspace)
+
+### Web search: add current information
+
+Connect a [SearXNG](https://docs.searxng.org/) server with its JSON API enabled, choose a
+model with tool support, and set at least **8192 context tokens** in Ollama. In Settings,
+enter the SearXNG address, enable automatic search, save and grant access, then press
+**Check**.
+
+Search is available in **Ask freely** and **Text workspace**. The model decides when to
+search and includes numbered sources. Queries go to SearXNG and its search engines;
+answers use your selected Ollama model. [SearXNG configuration →](docs/usage.md#web-search)
+
+### YouTube dubbing: listen in Russian
+
+Run a Silero server at `http://127.0.0.1:5011`; the
+[Silero guide](tools/silero/README.md#windows) includes Windows installation and startup
+commands. Open a YouTube video with captions and click **Translate** in the player.
+Choose the voice in extension Settings; adjust original volume, speech speed-up and
+Russian subtitles in the menu beside the player's Translate button.
+
+**Dubbing is always in Russian**, regardless of your translation language.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| Ollama is unavailable | Start Ollama, check its address in Settings, then press **⟳** in the popup. With WSL or Docker, use an address reachable from the browser. |
+| Ollama rejects extension requests | Set `OLLAMA_ORIGINS` as shown above and fully restart Ollama. |
+| No models, or the saved model is missing | Run `ollama list`, download a model if needed, then select an available model in the popup. A saved choice is not silently replaced. |
+| Ask freely or Text workspace reports a search error | Disable automatic search if you do not use SearXNG; otherwise check its JSON API, browser permission, tool support and context size. |
+| A passage does not fit, or an answer is cut off | Select less text, reset the conversation, or increase context length in Ollama. [Context and limits →](docs/usage.md#context-length-and-usage) |
+| Nothing opens on a browser settings page or PDF | Browser internal pages, extension stores and the built-in PDF viewer do not allow the injected panels. Try an ordinary web page. |
+| YouTube dubbing cannot start | Check that the video has captions and Silero is running. Use **Check** next to the Silero address in Settings. |
+
+## Development
+
+Edit the JavaScript, HTML or CSS directly, reload the extension on the browser's extensions
+page, then reload the web pages you are testing. No package installation or build is needed.
+
+- [src/page](src/page) and [src/selection](src/selection): page and selection translation.
+- [src/summary](src/summary): summaries and page conversations.
+- [src/text-workspace](src/text-workspace): conversations about selected text.
+- [src/dub](src/dub): YouTube dubbing.
+- [src/lib](src/lib) and [src/shared](src/shared): shared logic and interface components.
+- [tools/silero](tools/silero): the speech server.
