@@ -41,12 +41,12 @@ downloaded model. The instructions below cover Windows and Linux.
 With [Git](https://git-scm.com/downloads) installed, run:
 
 ```sh
-git clone https://github.com/evgenygorchakov/ollama-translator.git pagegloss
+git clone https://github.com/evgenygorchakov/pagegloss.git
 cd pagegloss
 ```
 
 Alternatively, choose **Code → Download ZIP** on the
-[repository page](https://github.com/evgenygorchakov/ollama-translator) and extract it.
+[repository page](https://github.com/evgenygorchakov/pagegloss) and extract it.
 Keep this folder: the browser loads the extension directly from it.
 
 ### 2. Prepare Ollama
