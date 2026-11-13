@@ -99,8 +99,8 @@ ollama list
 2. Wait for the Ollama status to show **OK**, then select your model. On first connection,
    the popup selects the first available model alphabetically; changing it saves immediately.
 3. Open **Settings**. Choose your **Translation language** if you want something other than
-   Russian. **If you have not set up SearXNG, uncheck “Search the web automatically when
-   needed”**, which is enabled by default. Press **Save**.
+   Russian, then press **Save**. Web search is off by default, so SearXNG is not needed
+   for translation or conversations using the page text and the model's knowledge.
 4. Return to the article, open the extension popup and click **Translate page**. Text is
    translated as you scroll. Click **Show original** to restore it.
 
@@ -142,8 +142,12 @@ panel. [Controls, appearance and limits →](docs/usage.md#text-workspace)
 
 Connect a [SearXNG](https://docs.searxng.org/) server with its JSON API enabled, choose a
 model with tool support, and set at least **8192 context tokens** in Ollama. In Settings,
-enter the SearXNG address, enable automatic search, save and grant access, then press
-**Check**.
+enter the SearXNG address, enable automatic search, press **Save** and grant access.
+The extension checks SearXNG before saving; if the check fails, the previous settings stay
+in effect. **Check** lets you test the server without enabling search.
+
+Search is off by default. Previously saved choices are preserved; turn it off in Settings
+if you no longer run SearXNG.
 
 Search is available in **Ask freely** and **Text workspace**. The model decides when to
 search and includes numbered sources. Queries go to SearXNG and its search engines;

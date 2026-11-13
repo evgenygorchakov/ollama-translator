@@ -61,11 +61,14 @@
             </div>
           </div>
           <small class="help">
-            Applies to Ask freely and Text workspace. Searches go through your SearXNG server;
+            Off by default. Without web search, Ask freely and Text workspace use the provided
+            text and the model's knowledge. Enable it after setting up SearXNG.
+            Searches go through your SearXNG server;
             answers use your selected Ollama model.
             No API key is needed. SearXNG must allow JSON search
             (<code>search.formats: [html, json]</code> in <code>settings.yml</code>).
-            Check runs a sample search. Answers use search excerpts, not full page downloads.
+            Save checks SearXNG before enabling search or changing its address while search is on.
+            Check runs a sample search without enabling it. Answers use search excerpts, not full page downloads.
             Requires a model with tool support and a context of at least 8192, set in Ollama.
           </small>
           <p id="web-status" class="status" role="status"></p>

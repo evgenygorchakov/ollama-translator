@@ -2,7 +2,7 @@ import { parseServerUrl } from "./host-permission.js";
 import { normalizeUrl } from "./settings.js";
 
 export const WEB_DEFAULTS = Object.freeze({
-  summaryWebEnabled: true,
+  summaryWebEnabled: false,
   summarySearxngUrl: "http://127.0.0.1:8888",
 });
 

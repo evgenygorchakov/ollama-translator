@@ -126,10 +126,17 @@ SearXNG server. **Ask about the page…** always uses only the source text.
    in Ollama.
 4. In extension Settings, enter the SearXNG base address and enable **Search the web
    automatically when needed**. Press **Save** and allow access when the browser asks.
-5. Press **Check** beside the SearXNG address to run a sample search through its JSON API.
+   The extension runs a sample JSON search before enabling search or saving a changed
+   address while search is on. If the check fails, the previous search settings stay in effect.
+5. Use **Check** beside the SearXNG address whenever you want to test its JSON API without
+   enabling search or saving changes.
 
-> Automatic search is enabled by default. If you do not run SearXNG, turn it off in Settings
-> and press Save before using Ask freely or Text workspace.
+> Automatic search is off by default, including after resetting settings. Ask freely and
+> Text workspace can work without SearXNG using the provided text and the model's knowledge.
+
+Previously saved choices are preserved. If search is already enabled and you no longer
+run SearXNG, turn it off and press **Save**. Disabling needs no server connection or browser
+permission, and works even if the address field is empty or invalid.
 
 ### What search sends and returns
 
